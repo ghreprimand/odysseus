@@ -2040,11 +2040,164 @@ function initDangerZone() {
 }
 
 /* ═══════════════════════════════════════════
+   SYSTEM DIAGNOSTICS
+   ═══════════════════════════════════════════ */
+let diagnosticsLoaded = false;
+let diagnosticsExpanded = false;
+
+function _diagOverallLabel(status) {
+  if (status === 'healthy') return 'Healthy';
+  if (status === 'error') return 'Needs attention';
+  return 'Degraded';
+}
+
+function _diagStatusLabel(status) {
+  if (status === 'ok') return 'OK';
+  if (status === 'warning') return 'Check';
+  if (status === 'error') return 'Error';
+  if (status === 'skipped') return 'Skipped';
+  return status || '';
+}
+
+function _diagBrief(data) {
+  const groups = Array.isArray(data?.groups) ? data.groups : [];
+  const checks = groups.flatMap(g => Array.isArray(g.checks) ? g.checks : []);
+  const errors = checks.filter(c => c.status === 'error').length;
+  const warnings = checks.filter(c => c.status === 'warning').length;
+  const skipped = checks.filter(c => c.status === 'skipped').length;
+  const ok = checks.filter(c => c.status === 'ok').length;
+  if (errors) return `${errors} ${errors === 1 ? 'needs' : 'need'} attention, ${ok} healthy.`;
+  if (warnings) return `${warnings} degraded, ${ok} healthy.`;
+  if (skipped) return `${ok} healthy, ${skipped} optional not configured.`;
+  return `${ok} checks healthy.`;
+}
+
+function setDiagnosticsExpanded(expanded) {
+  diagnosticsExpanded = !!expanded;
+  const list = el('adm-diagList');
+  const btn = el('adm-diagToggleBtn');
+  if (list) list.classList.toggle('hidden', !diagnosticsExpanded);
+  if (btn) {
+    btn.setAttribute('aria-expanded', diagnosticsExpanded ? 'true' : 'false');
+    btn.textContent = diagnosticsExpanded ? 'Hide Details' : 'Details';
+  }
+}
+
+function renderDiagnostics(data) {
+  const list = el('adm-diagList');
+  const meta = el('adm-diagMeta');
+  const summary = el('adm-diagSummary');
+  const brief = el('adm-diagBrief');
+  if (!list) return;
+  const overall = data?.overall || 'degraded';
+  if (summary) {
+    summary.innerHTML = `<span class="admin-diag-overall" data-status="${esc(overall)}">${esc(_diagOverallLabel(overall))}</span>`;
+  }
+  if (brief) brief.textContent = _diagBrief(data);
+  if (meta) {
+    const when = data?.checked_at ? new Date(data.checked_at) : null;
+    meta.textContent = when && !Number.isNaN(when.getTime()) ? `Checked ${when.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` : '';
+  }
+  const groups = Array.isArray(data?.groups) ? data.groups : [];
+  if (!groups.length) {
+    list.innerHTML = '<div class="admin-empty">No diagnostics returned.</div>';
+    return;
+  }
+  list.innerHTML = groups.map(group => {
+    const checks = Array.isArray(group.checks) ? group.checks : [];
+    return `
+      <div class="admin-diag-group">
+        <div class="admin-diag-group-title">${esc(group.label || group.id || 'Group')}</div>
+        ${checks.map(check => {
+          const action = check.action && check.action.tab
+            ? `<button class="admin-btn-sm" data-adm-diag-tab="${esc(check.action.tab)}">${esc(check.action.label || 'Open')}</button>`
+            : '';
+          return `
+            <div class="admin-diag-row" data-status="${esc(check.status || '')}">
+              <span class="admin-diag-dot" title="${esc(_diagStatusLabel(check.status))}"></span>
+              <div class="admin-diag-label">${esc(check.label || check.id || 'Check')}</div>
+              <div class="admin-diag-message">
+                <div>${esc(check.message || '')}</div>
+                ${check.hint ? `<div class="admin-diag-hint">${esc(check.hint)}</div>` : ''}
+              </div>
+              <div class="admin-diag-action">${action}</div>
+            </div>
+          `;
+        }).join('')}
+      </div>
+    `;
+  }).join('');
+  list.querySelectorAll('[data-adm-diag-tab]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const tab = btn.dataset.admDiagTab;
+      if (tab) open(tab);
+    });
+  });
+  setDiagnosticsExpanded(diagnosticsExpanded);
+}
+
+async function loadDiagnostics(force = false) {
+  const list = el('adm-diagList');
+  const btn = el('adm-diagRefreshBtn');
+  const brief = el('adm-diagBrief');
+  if (!list) return;
+  if (diagnosticsLoaded && !force) return;
+  const prev = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = 'Checking...'; }
+  if (brief) brief.innerHTML = '<span class="admin-spinner"></span>Running diagnostics...';
+  list.innerHTML = '<div class="admin-empty"><span class="admin-spinner"></span>Running diagnostics...</div>';
+  try {
+    const res = await fetch('/api/diagnostics/status', { credentials: 'same-origin' });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || data.error || 'Failed to load diagnostics');
+    diagnosticsLoaded = true;
+    renderDiagnostics(data);
+  } catch (e) {
+    if (brief) brief.textContent = 'Diagnostics failed.';
+    list.innerHTML = `<div class="admin-error">Diagnostics failed: ${esc(e.message || 'Request failed')}</div>`;
+    setDiagnosticsExpanded(true);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = prev || 'Refresh'; }
+  }
+}
+
+async function copyDiagnosticsSupportBundle() {
+  const btn = el('adm-diagCopyBtn');
+  const prev = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = 'Copying...'; }
+  try {
+    const res = await fetch('/api/diagnostics/support-bundle', { credentials: 'same-origin' });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || data.error || 'Failed to build diagnostics bundle');
+    if (!data.text) throw new Error('Diagnostics bundle was empty');
+    await uiModule.copyToClipboard(data.text);
+    if (btn) btn.textContent = 'Copied';
+    uiModule.showToast('Diagnostics bundle copied');
+    setTimeout(() => { if (btn) btn.textContent = prev || 'Copy Bundle'; }, 1200);
+  } catch (e) {
+    uiModule.showError('Copy failed: ' + (e.message || 'Request failed'));
+    if (btn) btn.textContent = prev || 'Copy Bundle';
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+function initDiagnostics() {
+  const refreshBtn = el('adm-diagRefreshBtn');
+  const toggleBtn = el('adm-diagToggleBtn');
+  const copyBtn = el('adm-diagCopyBtn');
+  if (refreshBtn) refreshBtn.addEventListener('click', () => loadDiagnostics(true));
+  if (toggleBtn) toggleBtn.addEventListener('click', () => setDiagnosticsExpanded(!diagnosticsExpanded));
+  if (copyBtn) copyBtn.addEventListener('click', copyDiagnosticsSupportBundle);
+  setDiagnosticsExpanded(false);
+}
+
+/* ═══════════════════════════════════════════
    INIT & REFRESH
    ═══════════════════════════════════════════ */
 function initAll() {
   modalEl = el('settings-modal');
-  const inits = [initSignupToggle, initAddUser, initEndpointForm, initMcpForm, initCalDAV, initBackup, initDangerZone, () => settingsModule.initIntegrations()];
+  const inits = [initSignupToggle, initAddUser, initEndpointForm, initMcpForm, initCalDAV, initBackup, initDangerZone, initDiagnostics, () => settingsModule.initIntegrations()];
   for (const fn of inits) {
     try { fn(); } catch (e) { console.error('Admin init error in', fn.name || 'anonymous', e); }
   }
@@ -2070,6 +2223,7 @@ export function _initData() {
 export function open(tab) {
   _initData();
   settingsModule.open(tab || 'services');
+  if ((tab || 'services') === 'system') loadDiagnostics();
 }
 
 export function close() {
