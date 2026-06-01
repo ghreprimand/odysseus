@@ -54,6 +54,9 @@ Use that for the first login, then change it in **Settings**.
 Contributing? See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, testing, and
 pull request guidelines.
 
+Stuck on setup? See [Self-Host Troubleshooting](docs/self-host-troubleshooting.md) for
+common Docker, ChromaDB, SearXNG, Ollama, ntfy, email, and Cookbook fixes.
+
 ### Docker (recommended)
 ```bash
 git clone https://github.com/pewdiepie-archdaemon/odysseus.git
@@ -226,6 +229,9 @@ docker compose ps
 docker compose logs --tail=120 odysseus
 docker compose logs odysseus | grep -E 'ChromaDB|MemoryVectorStore|DEGRADED'
 ```
+
+For symptom-specific fixes, see
+[Self-Host Troubleshooting](docs/self-host-troubleshooting.md).
 
 **macOS details.** `start-macos.sh` installs Homebrew deps, creates the venv,
 runs setup, and starts uvicorn on port `7860` because AirPlay often holds
