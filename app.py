@@ -659,6 +659,7 @@ from src.agent_tools import set_mcp_manager
 from routes.mcp_routes import setup_mcp_routes
 
 mcp_manager = McpManager()
+app.state.mcp_manager = mcp_manager
 set_mcp_manager(mcp_manager)
 app.include_router(setup_mcp_routes(mcp_manager))
 logger.info("MCP routes initialized")

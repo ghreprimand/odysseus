@@ -1,4 +1,4 @@
-"""Diagnostics routes — /api/db/stats, /api/rag/stats, /api/test/youtube, /api/test-research."""
+"""Diagnostics routes — system status and debug/test endpoints."""
 
 import logging
 from typing import Dict, Any
@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException, Form, Request
 from services.youtube.youtube_handler import extract_youtube_id, extract_transcript_async
 from core.constants import DEFAULT_HOST
 from core.middleware import require_admin
+from src.system_diagnostics import collect_system_diagnostics
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +19,15 @@ def setup_diagnostics_routes(
     research_handler,
 ) -> APIRouter:
     router = APIRouter(tags=["diagnostics"])
+
+    @router.get("/api/diagnostics/status")
+    async def get_system_diagnostics(request: Request) -> Dict[str, Any]:
+        require_admin(request)
+        try:
+            return await collect_system_diagnostics(getattr(request.app.state, "mcp_manager", None))
+        except Exception as e:
+            logger.error(f"System diagnostics error: {e}", exc_info=True)
+            raise HTTPException(500, "Failed to retrieve system diagnostics")
 
     @router.get("/api/db/stats")
     async def get_database_stats(request: Request) -> Dict[str, Any]:
