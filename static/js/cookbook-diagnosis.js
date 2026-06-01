@@ -343,6 +343,15 @@ export const ERROR_PATTERNS = [
     ],
   },
   {
+    pattern: /Could not find nvcc|CUDAToolkit_ROOT|CUDA Toolkit not found|Unable to find cudart library|CUDA_CUDART|ggml-cuda\/CMakeLists\.txt|building llama-server for CPU only|GPU inference will not be available/i,
+    message: 'llama.cpp CUDA toolkit/runtime is missing, so Odysseus is falling back to CPU. Docker GPU visibility only proves passthrough; llama.cpp also needs nvcc and cudart available to CMake.',
+    suggestion: 'Suggested action: install a complete CUDA toolkit/runtime on NVIDIA, or use Ollama, a ROCm/Vulkan llama.cpp build, or a registered OpenAI-compatible endpoint on AMD.',
+    fixes: [
+      { label: 'Copy NVIDIA guidance', action: () => _copyText('Install a complete CUDA toolkit/runtime with nvcc and cudart available to CMake. Docker nvidia-smi only confirms GPU passthrough; it does not prove llama.cpp can build with CUDA.') },
+      { label: 'Copy AMD guidance', action: () => _copyText('This llama.cpp build attempted CUDA, which will not work on AMD/Radeon. Use Ollama, a ROCm/Vulkan llama.cpp build, or run a separate OpenAI-compatible endpoint and add it in Settings -> Add Models.') },
+    ],
+  },
+  {
     pattern: /Engine core initialization failed/i,
     message: 'vLLM engine failed to start. Check the error above.',
     fixes: [
@@ -422,15 +431,6 @@ export const ERROR_PATTERNS = [
     fixes: [
       { label: 'Open Dependencies', action: () => _openCookbookDependencies('llama_cpp') },
       { label: 'Copy install command', action: () => _copyText('pip install "llama-cpp-python[server]"') },
-    ],
-  },
-  {
-    pattern: /CUDA Toolkit not found|Unable to find cudart library|missing:\s*CUDA_CUDART/i,
-    message: 'llama.cpp found nvcc, but the CUDA runtime library is missing.',
-    suggestion: 'Suggested action: relaunch with the updated runner so llama.cpp builds CPU-only, or install a complete CUDA toolkit/runtime on this server for GPU llama.cpp.',
-    fixes: [
-      { label: 'Edit serve', action: (panel) => _openServeEditFromDiagnosis(panel) },
-      { label: 'Open Dependencies', action: () => _openCookbookDependencies('llama_cpp') },
     ],
   },
   {

@@ -11,6 +11,7 @@ from routes.cookbook_helpers import (
     _append_serve_exit_code_lines,
     _append_serve_preflight_exit_lines,
     _llama_cpp_rebuild_cmd,
+    _diagnose_serve_output,
     _local_tooling_path_export,
     _pip_install_attempt,
     _pip_install_fallback_chain,
@@ -544,3 +545,47 @@ def test_pip_install_no_cache_is_idempotent_and_scoped():
     # not a pip install -> unchanged
     assert _pip_install_no_cache("vllm serve --model x") == "vllm serve --model x"
     assert _pip_install_no_cache("") == ""
+
+
+def test_serve_diagnosis_explains_llamacpp_cuda_toolkit_failure():
+    log = """
+    -- Could not find nvcc, please set CUDAToolkit_ROOT.
+    CMake Error at ggml/src/ggml-cuda/CMakeLists.txt:268 (message):
+      CUDA Toolkit not found
+    """
+
+    diag = _diagnose_serve_output(log)
+
+    assert diag is not None
+    assert "CUDA toolkit/runtime is missing" in diag["message"]
+    assert "falling back to CPU" in diag["message"]
+    assert "Docker GPU visibility only proves passthrough" in diag["message"]
+    assert diag["suggestions"][0]["op"] == "manual"
+
+
+def test_serve_diagnosis_explains_llamacpp_cuda_runtime_failure():
+    log = """
+    [odysseus] CUDA nvcc found — building llama-server with CUDA (GPU) support...
+    -- Unable to find cudart library.
+    -- Could NOT find CUDAToolkit (missing: CUDA_CUDART) (found version "13.3.33")
+    CMake Error at ggml/src/ggml-cuda/CMakeLists.txt:268 (message):
+      CUDA Toolkit not found
+    """
+
+    diag = _diagnose_serve_output(log)
+
+    assert diag is not None
+    assert "cudart available to CMake" in diag["message"]
+    assert "falling back to CPU" in diag["message"]
+
+
+def test_serve_diagnosis_explains_llamacpp_cpu_fallback_warning():
+    log = """
+    [odysseus] WARNING: nvcc found but CUDA runtime library was not found — building llama-server for CPU only.
+    [odysseus]   GPU inference will not be available for this llama.cpp build.
+    """
+
+    diag = _diagnose_serve_output(log)
+
+    assert diag is not None
+    assert "falling back to CPU" in diag["message"]
