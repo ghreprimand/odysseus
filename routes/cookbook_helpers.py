@@ -710,6 +710,11 @@ def _diagnose_serve_output(text: str) -> dict | None:
             [{"label": "install a complete CUDA toolkit/runtime for NVIDIA, or use a non-CUDA backend for AMD", "op": "manual"}],
         ),
         (
+            r"unsupported GNU version|gcc versions later than 13 are not supported|exception specification is incompatible.*\bcospi\b|nvcc fatal\s*:\s*Unsupported gpu architecture",
+            "A CUDA toolkit was found, but it does not match this host or GPU, so the llama.cpp CUDA build fails. Two common traps: (1) the host compiler/libc is too new for an older CUDA (CUDA 12.4 and earlier against glibc 2.41+ produces the 'cospi' exception-specification error, and CUDA 12.x rejects gcc newer than 13); (2) the CUDA version is too new for the GPU (CUDA 13 dropped pre-sm_75 support, so it cannot build for Pascal sm_61 cards such as the GTX 10-series). For older NVIDIA GPUs, use CUDA 12.8+ (still supports Pascal and is compatible with glibc 2.41) and build with -DCMAKE_CUDA_ARCHITECTURES set to the card's compute capability. Otherwise skip the source build and place a prebuilt llama-server on PATH.",
+            [{"label": "match the CUDA toolkit to the host and GPU (CUDA 12.8+ for older cards), or use a prebuilt llama-server on PATH", "op": "manual"}],
+        ),
+        (
             r"Address already in use|bind.*address.*in use",
             "Port is already in use.",
             [{"label": "retry on port 8001", "op": "replace", "flag": "--port", "value": "8001"}],
