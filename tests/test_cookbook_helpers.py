@@ -748,3 +748,40 @@ def test_serve_diagnosis_explains_llamacpp_cpu_fallback_warning():
 
     assert diag is not None
     assert "falling back to CPU" in diag["message"]
+
+
+def test_serve_diagnosis_explains_cuda_host_glibc_cospi_failure():
+    log = """
+    -- Found CUDAToolkit: /usr/local/cuda-12.4/targets/x86_64-linux/include (found version "12.4.99")
+    -- CUDA Toolkit found
+    error: exception specification is incompatible with that of previous function "cospi"
+    """
+
+    diag = _diagnose_serve_output(log)
+
+    assert diag is not None
+    assert "does not match this host or GPU" in diag["message"]
+    assert "CUDA 12.8+" in diag["message"]
+    assert diag["suggestions"][0]["op"] == "manual"
+
+
+def test_serve_diagnosis_explains_cuda_unsupported_gcc_version():
+    log = """
+    error: #error -- unsupported GNU version! gcc versions later than 13 are not supported!
+    """
+
+    diag = _diagnose_serve_output(log)
+
+    assert diag is not None
+    assert "does not match this host or GPU" in diag["message"]
+
+
+def test_serve_diagnosis_explains_cuda_unsupported_gpu_architecture():
+    log = """
+    nvcc fatal : Unsupported gpu architecture 'compute_61'
+    """
+
+    diag = _diagnose_serve_output(log)
+
+    assert diag is not None
+    assert "Pascal sm_61" in diag["message"]
