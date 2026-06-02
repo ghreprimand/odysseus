@@ -93,6 +93,32 @@ def setup_companion_routes() -> APIRouter:
             "capabilities": {"chat": True, "streaming": True},
         }
 
+    @router.get("/access")
+    def access(request: Request):
+        """Admin access-center metadata for pairing phones/LAN clients.
+
+        This endpoint is intentionally read-only: it reports candidate URLs and
+        bind posture, but it never mints or reveals a token. The pairing token
+        remains behind POST /api/companion/pair.
+        """
+        require_admin(request)
+        data = _pairing.access_candidates(str(request.url))
+        urls = data.get("urls") or []
+        return {
+            **data,
+            "pairing": {
+                "available": True,
+                "method": "POST",
+                "path": "/api/companion/pair?format=json",
+            },
+            "summary": (
+                "Ready for another device"
+                if data.get("reachable_from_another_device")
+                else "Loopback-only until LAN/Tailscale binding is enabled"
+            ),
+            "preferred_url": next((u["url"] for u in urls if u.get("recommended")), ""),
+        }
+
     @router.get("/models")
     def models(request: Request):
         """LLM model endpoints the CALLER can use.
@@ -180,7 +206,10 @@ def setup_companion_routes() -> APIRouter:
         the code works immediately, no restart. `?format=json` returns the
         payload for an in-app pairing screen."""
         require_admin(request)
-        owner = get_current_user(request)
+        owner = get_current_user(request) or _pairing.find_admin_user()
+        if not owner:
+            from fastapi import HTTPException
+            raise HTTPException(400, "No owner is available for the pairing token")
         invalidate = getattr(request.app.state, "invalidate_token_cache", None)
         token_id, raw_token = mint_pairing_token(owner, invalidate)
 

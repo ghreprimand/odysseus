@@ -7,6 +7,7 @@ Odysseus server offers and pair to it, without duplicating any LLM logic.
 |---|---|---|---|
 | GET | `/api/companion/ping` | session or token | cheap, auth-validated health check |
 | GET | `/api/companion/info` | session or token | server identity + capability flags |
+| GET | `/api/companion/access` | **admin cookie** | Settings access-center metadata: inferred LAN/Tailscale URLs, bind posture, pairing endpoint |
 | GET | `/api/companion/models` | session or token | the **caller's own** model endpoints |
 | GET | `/api/companion/pair` | **admin cookie** | pairing page (a form; never mints) |
 | POST | `/api/companion/pair` | **admin cookie** | mint a one-time pairing token (`?format=json` for an in-app screen) |
@@ -16,7 +17,9 @@ Odysseus server offers and pair to it, without duplicating any LLM logic.
 
 ## Pairing CSRF posture
 
-Minting happens **only on POST**. The session cookie is `SameSite=Lax`
+The Settings → System → Companion Access card calls `/access` to display
+reachable URLs and bind posture. That endpoint is read-only and never returns a
+token. Minting happens **only on POST**. The session cookie is `SameSite=Lax`
 (`routes/auth_routes.py`), so a browser will not send it on a cross-site POST —
 the same protection `POST /api/tokens` relies on. A `GET` would be unsafe (Lax
 cookies ride top-level GET navigations), so `GET /pair` only renders a form.

@@ -1954,6 +1954,127 @@ function initCalDAV() {
   });
 }
 
+/* ── Companion Access ── */
+function _companionKindLabel(kind) {
+  if (kind === 'tailscale') return 'Tailscale';
+  if (kind === 'loopback') return 'This device';
+  return 'LAN';
+}
+
+function _companionKindIcon(kind) {
+  if (kind === 'tailscale') {
+    return '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12a8 8 0 0 1 16 0"/><path d="M8 12a4 4 0 0 1 8 0"/><circle cx="12" cy="17" r="1"/></svg>';
+  }
+  if (kind === 'loopback') {
+    return '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M8 12h8"/></svg>';
+  }
+  return '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg>';
+}
+
+async function loadCompanionAccess() {
+  const summary = el('adm-companion-summary');
+  const urls = el('adm-companion-urls');
+  if (!summary || !urls) return;
+  summary.innerHTML = '<span class="admin-spinner"></span>Checking access...';
+  summary.className = 'companion-access-summary';
+  urls.innerHTML = '';
+  try {
+    const res = await fetch('/api/companion/access', { credentials: 'same-origin' });
+    const data = await res.json();
+    if (!res.ok) {
+      summary.textContent = data.detail || 'Companion access is unavailable.';
+      summary.className = 'companion-access-summary companion-access-warning';
+      return;
+    }
+    const ready = !!data.reachable_from_another_device;
+    summary.className = 'companion-access-summary ' + (ready ? 'companion-access-ready' : 'companion-access-warning');
+    summary.innerHTML = `
+      <span class="companion-status-dot"></span>
+      <div>
+        <strong>${esc(data.summary || (ready ? 'Ready for another device' : 'Loopback-only'))}</strong>
+        <span>${ready ? 'Use a listed URL from a trusted device on the same network or tailnet.' : 'Bind to LAN/Tailscale before a phone can connect directly.'}</span>
+      </div>`;
+    const rows = Array.isArray(data.urls) ? data.urls : [];
+    if (!rows.length) {
+      urls.innerHTML = '<div class="admin-empty">No access URLs detected</div>';
+      return;
+    }
+    urls.innerHTML = rows.map(item => {
+      const recommended = item.recommended && ready;
+      const muted = item.kind === 'loopback';
+      return `<div class="companion-url-row${recommended ? ' recommended' : ''}${muted ? ' muted' : ''}">
+        <div class="companion-url-kind">${_companionKindIcon(item.kind)}<span>${esc(_companionKindLabel(item.kind))}</span></div>
+        <a class="companion-url-value" href="${esc(item.url)}" target="_blank" rel="noreferrer">${esc(item.url)}</a>
+        ${recommended ? '<span class="admin-badge">best</span>' : ''}
+        <button class="admin-btn-sm companion-copy-btn" data-companion-copy="${esc(item.url)}" title="Copy URL">Copy</button>
+      </div>`;
+    }).join('');
+    urls.querySelectorAll('[data-companion-copy]').forEach(btn => {
+      btn.addEventListener('click', () => uiModule.copyToClipboard(btn.dataset.companionCopy || ''));
+    });
+  } catch (e) {
+    summary.textContent = 'Failed to check companion access: ' + (e && e.message ? e.message : 'request failed');
+    summary.className = 'companion-access-summary companion-access-warning';
+  }
+}
+
+function _renderPairingPayload(data) {
+  const panel = el('adm-companion-pairing');
+  if (!panel) return;
+  const payload = data && data.payload ? JSON.stringify(data.payload, null, 2) : '';
+  const qr = data && typeof data.qr === 'string' && data.qr.startsWith('data:image/png;base64,') ? data.qr : '';
+  panel.classList.remove('hidden');
+  panel.innerHTML = `
+    <div class="companion-pairing-grid">
+      <div class="companion-qr-box">
+        ${qr ? `<img src="${esc(qr)}" alt="Companion pairing QR">` : '<div class="companion-qr-missing">QR unavailable</div>'}
+      </div>
+      <div class="companion-pairing-details">
+        <div class="companion-pairing-title">One-time pairing payload</div>
+        <div class="admin-toggle-sub">Shown once. Revoke the generated token under API tokens if the device is lost.</div>
+        <pre>${esc(payload)}</pre>
+        <div class="companion-access-actions">
+          <button class="admin-btn-add" id="adm-companion-copy-payload">Copy Payload</button>
+          <button class="admin-btn-sm" id="adm-companion-hide-payload">Hide</button>
+        </div>
+      </div>
+    </div>`;
+  el('adm-companion-copy-payload')?.addEventListener('click', () => uiModule.copyToClipboard(payload));
+  el('adm-companion-hide-payload')?.addEventListener('click', () => {
+    panel.classList.add('hidden');
+    panel.innerHTML = '';
+  });
+}
+
+function initCompanionAccess() {
+  const refreshBtn = el('adm-companion-refresh');
+  const pairBtn = el('adm-companion-pair-btn');
+  const pairPageBtn = el('adm-companion-open-pair-page');
+  if (!refreshBtn || !pairBtn) return;
+  refreshBtn.addEventListener('click', loadCompanionAccess);
+  pairPageBtn?.addEventListener('click', () => window.open('/api/companion/pair', '_blank', 'noopener,noreferrer'));
+  pairBtn.addEventListener('click', async () => {
+    pairBtn.disabled = true;
+    const prev = pairBtn.textContent;
+    pairBtn.textContent = 'Creating...';
+    try {
+      const res = await fetch('/api/companion/pair?format=json', {
+        method: 'POST',
+        credentials: 'same-origin',
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Pairing failed');
+      _renderPairingPayload(data);
+      uiModule.showToast('Pairing code created');
+    } catch (e) {
+      uiModule.showError('Pairing failed: ' + (e && e.message ? e.message : 'request failed'));
+    }
+    pairBtn.disabled = false;
+    pairBtn.textContent = prev;
+  });
+  loadCompanionAccess();
+}
+
 /* ── Data Backup (export/import) ── */
 function initBackup() {
   el('adm-exportDataBtn').addEventListener('click', async () => {
@@ -2044,7 +2165,7 @@ function initDangerZone() {
    ═══════════════════════════════════════════ */
 function initAll() {
   modalEl = el('settings-modal');
-  const inits = [initSignupToggle, initAddUser, initEndpointForm, initMcpForm, initCalDAV, initBackup, initDangerZone, () => settingsModule.initIntegrations()];
+  const inits = [initSignupToggle, initAddUser, initEndpointForm, initMcpForm, initCalDAV, initCompanionAccess, initBackup, initDangerZone, () => settingsModule.initIntegrations()];
   for (const fn of inits) {
     try { fn(); } catch (e) { console.error('Admin init error in', fn.name || 'anonymous', e); }
   }
@@ -2057,6 +2178,7 @@ function refreshAll() {
   loadEndpoints();
   loadBuiltinTools();
   loadMcpServers();
+  loadCompanionAccess();
 }
 
 /* ═══════════════════════════════════════════

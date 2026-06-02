@@ -11,6 +11,7 @@ import os
 import secrets
 import socket
 import uuid
+from urllib.parse import urlparse
 
 import bcrypt
 
@@ -25,6 +26,54 @@ def default_port() -> int:
         return int(os.environ.get("APP_PORT", "7000"))
     except ValueError:
         return 7000
+
+
+def configured_bind_host() -> str:
+    """Return the configured app bind host, using the same env knobs documented
+    for Docker/native launches. The default is loopback: safe, but not reachable
+    by a phone until the operator opts into LAN/Tailscale exposure."""
+    return (
+        os.environ.get("APP_BIND")
+        or os.environ.get("ODYSSEUS_HOST")
+        or "127.0.0.1"
+    ).strip() or "127.0.0.1"
+
+
+def is_loopback_host(host: str | None) -> bool:
+    if not host:
+        return False
+    return host.lower().strip("[]") in {"localhost", "127.0.0.1", "::1"}
+
+
+def _is_tailscale_ip(ip: str) -> bool:
+    parts = ip.split(".")
+    if len(parts) != 4 or parts[0] != "100":
+        return False
+    try:
+        second = int(parts[1])
+    except ValueError:
+        return False
+    return 64 <= second <= 127
+
+
+def access_kind(host: str) -> str:
+    """Classify a host for UI labels. Keep this intentionally simple: the
+    Companion UI is advisory, not a network security decision point."""
+    if is_loopback_host(host):
+        return "loopback"
+    if _is_tailscale_ip(host):
+        return "tailscale"
+    return "lan"
+
+
+def _netloc(host: str, port: int, scheme: str) -> str:
+    default = (scheme == "http" and port == 80) or (scheme == "https" and port == 443)
+    display_host = f"[{host}]" if ":" in host and not host.startswith("[") else host
+    return display_host if default else f"{display_host}:{port}"
+
+
+def access_url(host: str, port: int, scheme: str = "http") -> str:
+    return f"{scheme}://{_netloc(host, port, scheme)}"
 
 
 def lan_ip_candidates() -> list[str]:
@@ -56,6 +105,45 @@ def lan_ip_candidates() -> list[str]:
         pass
 
     return candidates
+
+
+def access_candidates(request_url: str | None = None) -> dict:
+    """Build display-only URLs for reaching this server from another device.
+
+    This does not mint credentials and does not probe the network. It reports
+    the URLs Odysseus can infer locally, plus a conservative bind warning when
+    the app appears to be loopback-only.
+    """
+    parsed = urlparse(request_url or "")
+    scheme = parsed.scheme or "http"
+    request_host = parsed.hostname or ""
+    port = parsed.port or default_port()
+    bind_host = configured_bind_host()
+
+    hosts: list[str] = []
+    for host in [request_host, *lan_ip_candidates()]:
+        if host and host not in hosts:
+            hosts.append(host)
+
+    urls = []
+    for host in hosts:
+        kind = access_kind(host)
+        urls.append({
+            "host": host,
+            "kind": kind,
+            "url": access_url(host, port, scheme),
+            "current": host == request_host,
+            "recommended": kind in {"tailscale", "lan"} and not is_loopback_host(host),
+        })
+
+    reachable = any(u["recommended"] for u in urls)
+    return {
+        "bind_host": bind_host,
+        "loopback_only": is_loopback_host(bind_host),
+        "current_url": access_url(request_host, port, scheme) if request_host else "",
+        "urls": urls,
+        "reachable_from_another_device": reachable and not is_loopback_host(bind_host),
+    }
 
 
 def find_admin_user() -> str | None:

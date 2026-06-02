@@ -102,6 +102,35 @@ def test_pairing_payload_shape():
     assert p == {"v": 1, "host": "192.168.1.9", "port": 7000, "token": "ody_x"}
 
 
+def test_access_candidates_reports_loopback_bind_without_token(monkeypatch):
+    monkeypatch.setenv("APP_BIND", "127.0.0.1")
+    monkeypatch.setattr(P, "lan_ip_candidates", lambda: ["192.168.1.9", "100.88.1.2"])
+
+    data = P.access_candidates("http://127.0.0.1:7000/api/companion/access")
+
+    assert data["bind_host"] == "127.0.0.1"
+    assert data["loopback_only"] is True
+    assert data["reachable_from_another_device"] is False
+    assert [u["kind"] for u in data["urls"]] == ["loopback", "lan", "tailscale"]
+    assert "token" not in str(data).lower()
+
+
+def test_access_candidates_marks_lan_ready_when_bound_to_all_interfaces(monkeypatch):
+    monkeypatch.setenv("APP_BIND", "0.0.0.0")
+    monkeypatch.setattr(P, "lan_ip_candidates", lambda: ["192.168.1.9"])
+
+    data = P.access_candidates("http://192.168.1.9:7000/api/companion/access")
+
+    assert data["loopback_only"] is False
+    assert data["reachable_from_another_device"] is True
+    assert data["urls"][0]["recommended"] is True
+    assert data["urls"][0]["url"] == "http://192.168.1.9:7000"
+
+
+def test_access_url_brackets_ipv6_hosts():
+    assert P.access_url("::1", 7000, "http") == "http://[::1]:7000"
+
+
 # --- admin-only gate: a bearer/non-admin caller is rejected ----------------
 
 def _admin_mgr(is_admin):
@@ -157,6 +186,14 @@ def _pair_endpoint(method):
     raise AssertionError(f"{method} /api/companion/pair route not found")
 
 
+def _access_endpoint():
+    router = setup_companion_routes()
+    for r in router.routes:
+        if getattr(r, "path", "").endswith("/access") and "GET" in getattr(r, "methods", set()):
+            return r.endpoint
+    raise AssertionError("GET /api/companion/access route not found")
+
+
 def test_pair_is_minted_via_post_not_get():
     methods = _pair_methods()
     assert "POST" in methods, "pairing must accept POST (the mint)"
@@ -170,3 +207,58 @@ def test_pair_page_uses_imported_admin_gate(monkeypatch):
     response = _pair_endpoint("GET")(SimpleNamespace())
 
     assert "Pair a device" in str(getattr(response, "body", response))
+
+
+def test_pair_create_falls_back_to_admin_user_when_auth_disabled(monkeypatch):
+    monkeypatch.setattr(companion_routes, "require_admin", lambda request: None)
+    monkeypatch.setattr(companion_routes, "get_current_user", lambda request: None)
+    monkeypatch.setattr(P, "find_admin_user", lambda: "alice")
+    mint = MagicMock(return_value=("id1", "ody_demo"))
+    monkeypatch.setattr(companion_routes, "mint_pairing_token", mint)
+    monkeypatch.setattr(P, "lan_ip_candidates", lambda: ["192.168.1.9"])
+    monkeypatch.setattr(P, "pairing_qr_png_data_uri", lambda payload: None)
+
+    request = SimpleNamespace(
+        app=SimpleNamespace(state=SimpleNamespace(invalidate_token_cache=None)),
+        query_params={"format": "json"},
+        url=SimpleNamespace(port=7000),
+    )
+
+    response = _pair_endpoint("POST")(request)
+
+    mint.assert_called_once_with("alice", None)
+    assert response["token"] == "ody_demo"
+    assert response["host"] == "192.168.1.9"
+
+
+def test_pair_create_rejects_when_no_owner_exists(monkeypatch):
+    monkeypatch.setattr(companion_routes, "require_admin", lambda request: None)
+    monkeypatch.setattr(companion_routes, "get_current_user", lambda request: None)
+    monkeypatch.setattr(P, "find_admin_user", lambda: None)
+
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace()))
+
+    with pytest.raises(HTTPException) as exc:
+        _pair_endpoint("POST")(request)
+
+    assert exc.value.status_code == 400
+
+
+def test_access_endpoint_is_read_only_and_admin_gated(monkeypatch):
+    monkeypatch.setattr(companion_routes, "require_admin", lambda request: None)
+    mint = MagicMock()
+    monkeypatch.setattr(companion_routes, "mint_pairing_token", mint)
+    monkeypatch.setattr(P, "access_candidates", lambda request_url: {
+        "bind_host": "0.0.0.0",
+        "loopback_only": False,
+        "current_url": "http://192.168.1.9:7000",
+        "urls": [{"url": "http://192.168.1.9:7000", "recommended": True}],
+        "reachable_from_another_device": True,
+    })
+
+    response = _access_endpoint()(SimpleNamespace(url="http://192.168.1.9:7000/api/companion/access"))
+
+    mint.assert_not_called()
+    assert response["summary"] == "Ready for another device"
+    assert response["preferred_url"] == "http://192.168.1.9:7000"
+    assert response["pairing"]["method"] == "POST"
