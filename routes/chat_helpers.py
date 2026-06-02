@@ -275,11 +275,16 @@ def extract_preset(chat_handler, preset_id) -> PresetInfo:
 async def preprocess(
     chat_handler, message, att_ids, sess,
     auto_opened_docs: Optional[list] = None,
+    expose_generic_attachment_paths: bool = False,
 ) -> PreprocessedMessage:
     """Run chat_handler.preprocess_message and wrap the result."""
     enhanced, user_content, text_ctx, yt_transcripts, att_meta = (
         await chat_handler.preprocess_message(
-            message, att_ids, sess, auto_opened_docs=auto_opened_docs
+            message,
+            att_ids,
+            sess,
+            auto_opened_docs=auto_opened_docs,
+            expose_generic_attachment_paths=expose_generic_attachment_paths,
         )
     )
     return PreprocessedMessage(
@@ -465,6 +470,7 @@ async def build_chat_context(
     preprocessed = await preprocess(
         chat_handler, message, att_ids or [], sess,
         auto_opened_docs=auto_opened_docs,
+        expose_generic_attachment_paths=agent_mode,
     )
 
     # Add user message to history

@@ -105,6 +105,50 @@ def _process_text_file(path: str) -> str:
         return result
 
 
+def _format_generic_attachment_context(
+    *,
+    upload_id: str,
+    display_name: str,
+    mime: str,
+    size: Any,
+    path: str | None = None,
+) -> str:
+    """Describe a stored attachment that cannot be inlined as text/media.
+
+    The caller has already resolved the upload through UploadHandler, including
+    owner checks and upload-directory containment. The path is useful in agent
+    mode because tools such as Python can inspect binary formats like STL.
+    """
+    try:
+        size_label = f"{int(size):,} bytes"
+    except (TypeError, ValueError):
+        size_label = "unknown size"
+    details = (
+        f"\n\n[Attached file: {display_name}]\n"
+        f"- Upload id: {upload_id}\n"
+        f"- MIME type: {mime or 'application/octet-stream'}\n"
+        f"- Size: {size_label}\n"
+    )
+    if path:
+        details += f"- Server path: {path}\n"
+        guidance = (
+            "This file is binary or not directly text-extractable. If tool access is "
+            "available and the user asks you to inspect it, use the server path above "
+            "with a file-capable tool such as Python. Do not ask the user to re-upload "
+            "the file."
+        )
+    else:
+        guidance = (
+            "This file is binary or not directly text-extractable. Switch to agent "
+            "mode if you need file-capable tools to inspect it."
+        )
+    return (
+        details
+        + "\n"
+        + guidance
+    )
+
+
 def _process_pdf(path: str) -> str:
     """Process PDF file with text extraction (pypdf). Uses VL model for image-heavy pages."""
     try:
@@ -313,6 +357,7 @@ def build_user_content(
     auto_opened_docs: list[Dict[str, Any]] | None = None,
     owner: str | None = None,
     resolved_uploads: dict[str, Dict[str, Any]] | None = None,
+    expose_generic_attachment_paths: bool = False,
 ) -> str | List[Dict[str, Any]]:
     """Build user content with attachments (text, images, audio, documents).
 
@@ -490,10 +535,17 @@ def build_user_content(
             else:
                 content.insert(0, {"type": "text", "text": extracted_text.lstrip()})
         else:
+            attached_text = _format_generic_attachment_context(
+                upload_id=upload_info.get("id") or fid,
+                display_name=display_name,
+                mime=mime,
+                size=upload_info.get("size"),
+                path=path if expose_generic_attachment_paths else None,
+            )
             if content and content[0]["type"] == "text":
-                content[0]["text"] += "\n\n[Attached non-text file]"
+                content[0]["text"] += attached_text
             else:
-                content.insert(0, {"type": "text", "text": "[Attached non-text file]"})
+                content.insert(0, {"type": "text", "text": attached_text.lstrip()})
 
     has_media = any(item.get("type") in ["image_url", "audio"] for item in content if isinstance(item, dict))
     if not has_media and content:

@@ -98,6 +98,7 @@ class ChatHandler:
         att_ids: List[str],
         sess,
         auto_opened_docs: Optional[List[Dict[str, Any]]] = None,
+        expose_generic_attachment_paths: bool = False,
     ) -> tuple:
         """
         Common preprocessing for both chat endpoints.
@@ -244,6 +245,7 @@ class ChatHandler:
             auto_opened_docs=auto_opened_docs,
             owner=owner,
             resolved_uploads=files_by_id,
+            expose_generic_attachment_paths=expose_generic_attachment_paths,
         )
 
         # Strip image_url entries for text-only models (VL description is already in the text)
