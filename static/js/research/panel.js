@@ -961,8 +961,12 @@ function _buildJobCard(job) {
       entry = { synapse, status: 'running' };
       _jobSynapses.set(job.id, entry);
     } else {
-      // Move the existing element into the freshly-rendered host
-      host.appendChild(entry.synapse.element);
+      // Move the existing element into the freshly-rendered host unless the
+      // user has it expanded in the overlay. In expanded mode the component
+      // restores itself to its placeholder when closed.
+      if (!entry.synapse.isExpanded || !entry.synapse.isExpanded()) {
+        host.appendChild(entry.synapse.element);
+      }
     }
     // Push the current progress state
     if (job.progress) {

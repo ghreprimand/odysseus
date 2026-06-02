@@ -27,6 +27,16 @@ export default function createResearchSynapse(container, opts = {}) {
   const wrap = document.createElement('div');
   wrap.className = 'research-synapse' + (opts.compact ? ' research-synapse-compact' : '');
   wrap.innerHTML = `
+    <div class="rs-toolbar">
+      <button type="button" class="rs-expand-btn" title="Expand visualization" aria-label="Expand research visualization">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <polyline points="15 3 21 3 21 9"></polyline>
+          <polyline points="9 21 3 21 3 15"></polyline>
+          <line x1="21" y1="3" x2="14" y2="10"></line>
+          <line x1="3" y1="21" x2="10" y2="14"></line>
+        </svg>
+      </button>
+    </div>
     <div class="rs-stage">
       <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">
         <g class="rs-edges"></g>
@@ -53,6 +63,7 @@ export default function createResearchSynapse(container, opts = {}) {
   const roundE  = wrap.querySelector('.rs-round b');
   const srcE    = wrap.querySelector('.rs-sources b');
   const timerE  = wrap.querySelector('.rs-timer');
+  const expandBtn = wrap.querySelector('.rs-expand-btn');
 
   // ── root (query) ───────────────────────────────────────────────
   const root = document.createElementNS(SVG_NS, 'circle');
@@ -72,6 +83,11 @@ export default function createResearchSynapse(container, opts = {}) {
   let sourceCount = 0;
   let lastRound = 0;
   let completed = false;
+  let expanded = false;
+  let overlay = null;
+  let placeholder = null;
+  let originalParent = null;
+  let originalNextSibling = null;
 
   // ── timer ──────────────────────────────────────────────────────
   const startedAt = opts.startedAt || Date.now();
@@ -164,9 +180,91 @@ export default function createResearchSynapse(container, opts = {}) {
     nodesG.appendChild(leaf);
   }
 
+  function _closeExpanded() {
+    if (!expanded) return;
+    expanded = false;
+    wrap.classList.remove('research-synapse-expanded');
+    if (expandBtn) {
+      expandBtn.title = 'Expand visualization';
+      expandBtn.setAttribute('aria-label', 'Expand research visualization');
+      expandBtn.setAttribute('aria-expanded', 'false');
+    }
+    if (placeholder && placeholder.parentNode) {
+      placeholder.parentNode.insertBefore(wrap, placeholder);
+      placeholder.remove();
+    } else if (originalParent) {
+      originalParent.insertBefore(wrap, originalNextSibling);
+    }
+    if (overlay && overlay.parentNode) overlay.remove();
+    overlay = null;
+    placeholder = null;
+    originalParent = null;
+    originalNextSibling = null;
+    document.removeEventListener('keydown', _onExpandedKeydown);
+  }
+
+  function _onExpandedKeydown(e) {
+    if (e.key === 'Escape') _closeExpanded();
+  }
+
+  function _openExpanded() {
+    if (expanded) return;
+    originalParent = wrap.parentNode;
+    originalNextSibling = wrap.nextSibling;
+    placeholder = document.createElement('div');
+    placeholder.className = 'research-synapse-placeholder';
+    if (originalParent) originalParent.insertBefore(placeholder, wrap);
+
+    overlay = document.createElement('div');
+    overlay.className = 'research-synapse-overlay';
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-label', 'Expanded research visualization');
+    overlay.innerHTML = `
+      <div class="research-synapse-shell">
+        <div class="research-synapse-shell-header">
+          <span class="research-synapse-shell-title">Deep Research Map</span>
+          <button type="button" class="research-synapse-close" title="Close" aria-label="Close expanded research visualization">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
+        </div>
+        <div class="research-synapse-shell-body"></div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+    overlay.querySelector('.research-synapse-shell-body').appendChild(wrap);
+    overlay.querySelector('.research-synapse-close')?.addEventListener('click', _closeExpanded);
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) _closeExpanded();
+    });
+    expanded = true;
+    wrap.classList.add('research-synapse-expanded');
+    if (expandBtn) {
+      expandBtn.title = 'Collapse visualization';
+      expandBtn.setAttribute('aria-label', 'Collapse research visualization');
+      expandBtn.setAttribute('aria-expanded', 'true');
+    }
+    document.addEventListener('keydown', _onExpandedKeydown);
+  }
+
+  if (expandBtn) {
+    expandBtn.setAttribute('aria-expanded', 'false');
+    expandBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (expanded) _closeExpanded();
+      else _openExpanded();
+    });
+  }
+
   // ── public API ─────────────────────────────────────────────────
   return {
     element: wrap,
+    isExpanded() {
+      return expanded;
+    },
 
     /** Reflect a phase change in the status text + side effects. */
     setPhase(phase, extra = {}) {
@@ -218,6 +316,7 @@ export default function createResearchSynapse(container, opts = {}) {
     },
 
     destroy() {
+      _closeExpanded();
       if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
       if (wrap.parentNode) wrap.parentNode.removeChild(wrap);
     },

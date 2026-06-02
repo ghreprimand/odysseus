@@ -22493,6 +22493,38 @@ input.settings-select::placeholder { color: color-mix(in srgb, var(--fg) 35%, tr
     radial-gradient(ellipse at center, color-mix(in srgb, var(--accent, var(--red)) 10%, transparent) 0%, transparent 70%),
     color-mix(in srgb, var(--panel) 50%, var(--bg));
   overflow: hidden;
+  position: relative;
+}
+.research-synapse .rs-toolbar {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 2;
+  display: flex;
+  gap: 4px;
+}
+.research-synapse .rs-expand-btn {
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  border-radius: 6px;
+  color: var(--fg-dim, var(--fg));
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
+  cursor: pointer;
+  opacity: 0.72;
+  transition: opacity 0.15s, color 0.15s, border-color 0.15s, background 0.15s;
+}
+.research-synapse .rs-expand-btn:hover,
+.research-synapse .rs-expand-btn:focus-visible {
+  opacity: 1;
+  color: var(--fg);
+  border-color: var(--accent, var(--red));
+  background: color-mix(in srgb, var(--accent, var(--red)) 10%, var(--bg));
+  outline: none;
 }
 .research-synapse .rs-stage {
   height: 200px;
@@ -22604,6 +22636,122 @@ input.settings-select::placeholder { color: color-mix(in srgb, var(--fg) 35%, tr
 }
 .research-synapse.rs-complete .rs-meta .rs-status { color: var(--color-success, #4caf50); }
 .research-synapse.rs-error .rs-meta .rs-status { color: var(--red); }
+.research-synapse-placeholder {
+  min-height: 38px;
+  border: 1px dashed color-mix(in srgb, var(--border) 70%, transparent);
+  border-radius: 8px;
+  margin: 6px 0 4px;
+}
+.research-synapse-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10020;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: clamp(12px, 3vw, 32px);
+  background: color-mix(in srgb, var(--bg) 72%, black 28%);
+}
+.research-synapse-shell {
+  width: min(1120px, 96vw);
+  height: min(760px, 88vh);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
+}
+.research-synapse-shell-header {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px 8px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.research-synapse-shell-title {
+  flex: 1;
+  min-width: 0;
+  color: var(--fg);
+  font: 600 12px/1.2 ui-monospace, "JetBrains Mono", monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.research-synapse-close {
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--fg-dim, var(--fg));
+  background: transparent;
+  cursor: pointer;
+}
+.research-synapse-close:hover,
+.research-synapse-close:focus-visible {
+  color: var(--fg);
+  border-color: var(--red);
+  outline: none;
+}
+.research-synapse-shell-body {
+  flex: 1;
+  min-height: 0;
+  padding: 12px;
+}
+.research-synapse.research-synapse-expanded {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  border-radius: 8px;
+}
+.research-synapse.research-synapse-expanded .rs-toolbar {
+  top: 10px;
+  right: 10px;
+}
+.research-synapse.research-synapse-expanded .rs-stage {
+  flex: 1;
+  height: auto;
+  min-height: 0;
+}
+.research-synapse.research-synapse-expanded .rs-meta {
+  padding: 10px 12px 12px;
+  font-size: 12px;
+}
+.research-synapse.research-synapse-expanded .rs-label {
+  font-size: 12px;
+}
+.research-synapse.research-synapse-expanded .rs-label-sub {
+  font-size: 10px;
+}
+@media (max-width: 700px) {
+  .research-synapse-overlay {
+    padding: 8px;
+  }
+  .research-synapse-shell {
+    width: 100vw;
+    height: 92vh;
+  }
+  .research-synapse-shell-body {
+    padding: 8px;
+  }
+  .research-synapse.research-synapse-expanded .rs-meta {
+    font-size: 11px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .research-synapse .rs-edge.rs-edge-firing,
+  .research-synapse .rs-node-new,
+  .research-synapse .rs-pulse {
+    animation: none;
+  }
+}
 
 /* ── Raw findings items (inside sources-style box) ── */
 .finding-item {
