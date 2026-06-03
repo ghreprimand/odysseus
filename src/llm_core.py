@@ -512,6 +512,12 @@ def _build_anthropic_payload(model, messages, temperature, max_tokens, stream=Fa
             # Convert multimodal content (image_url → image) for Anthropic
             content = _convert_openai_content_to_anthropic(m["content"])
             chat_messages.append({"role": m["role"], "content": content})
+    # Anthropic only accepts temperature in [0.0, 1.0] and 400s on anything above
+    # 1.0. Clamp here (in the Anthropic builder only) so presets/sliders that use
+    # the wider OpenAI 0.0-2.0 range — e.g. the shipped "Nietzsche" preset at 1.2
+    # — don't hard-break every Claude request. OpenAI's own path is left untouched.
+    if temperature is not None:
+        temperature = max(0.0, min(temperature, 1.0))
     payload = {
         "model": model,
         "messages": chat_messages,
@@ -562,11 +568,32 @@ def _build_anthropic_headers(headers):
     return h
 
 def _parse_anthropic_response(data: dict) -> str:
-    """Extract text from Anthropic response."""
-    for block in data.get("content", []):
-        if block.get("type") == "text":
-            return block.get("text", "")
-    return ""
+    """Extract text from an Anthropic response.
+
+    The Messages API `content` is an array that can hold more than one text
+    block (e.g. text split around a tool_use block, or citation-segmented
+    text). Concatenate them all instead of returning only the first, which
+    silently dropped the rest of the reply.
+    """
+    return "".join(
+        block.get("text", "")
+        for block in data.get("content", [])
+        if isinstance(block, dict) and block.get("type") == "text"
+    )
+
+
+def _as_content_blocks(content) -> List[Dict]:
+    """Coerce a message `content` into a list of content blocks.
+
+    A list (multimodal: text + image parts) passes through; a non-empty string
+    becomes a single text block; None/empty yields no blocks. Used when merging
+    consecutive user messages so multimodal content isn't str()-ed away.
+    """
+    if isinstance(content, list):
+        return content
+    if content:
+        return [{"type": "text", "text": str(content)}]
+    return []
 
 
 def _sanitize_llm_messages(messages: List[Dict]) -> List[Dict]:
@@ -682,13 +709,25 @@ def _sanitize_llm_messages(messages: List[Dict]) -> List[Dict]:
         last = merged[-1]
         if last.get("role") == "user" and item.get("role") == "user":
             last_copy = dict(last)
-            last_str = str(last_copy.get("content")) if last_copy.get("content") is not None else ""
-            item_str = str(item.get("content")) if item.get("content") is not None else ""
-            new_content = "\n\n".join(part for part in (last_str, item_str) if part)
-            if new_content:
-                last_copy["content"] = new_content
+            lc = last_copy.get("content")
+            ic = item.get("content")
+            if isinstance(lc, list) or isinstance(ic, list):
+                # Preserve multimodal content blocks (e.g. an image part) by
+                # concatenating the block lists. str()-ing a list turned an
+                # image message into its Python repr and dropped the image.
+                merged_blocks = _as_content_blocks(lc) + _as_content_blocks(ic)
+                if merged_blocks:
+                    last_copy["content"] = merged_blocks
+                else:
+                    last_copy.pop("content", None)
             else:
-                last_copy.pop("content", None)
+                last_str = str(lc) if lc is not None else ""
+                item_str = str(ic) if ic is not None else ""
+                new_content = "\n\n".join(part for part in (last_str, item_str) if part)
+                if new_content:
+                    last_copy["content"] = new_content
+                else:
+                    last_copy.pop("content", None)
             merged[-1] = last_copy
         else:
             merged.append(item)
@@ -827,11 +866,37 @@ def llm_call(url: str, model: str, messages: List[Dict], temperature: float = LL
         elif provider == "ollama":
             response = _parse_ollama_response(data)
         else:
-            response = data["choices"][0]["message"]["content"]
+            msg = data["choices"][0]["message"]
+            response = msg.get("content") or msg.get("reasoning_content") or ""
         _set_cached_response(cache_key, response)
         return response
     except Exception:
         raise HTTPException(502, f"Unexpected schema from {target_url}: {str(data)[:400]}")
+
+
+def _dedupe_candidates(candidates):
+    """Filter malformed entries and drop a later repeat of an already-seen
+    ``(url, model)`` route, preserving order (first occurrence wins).
+
+    The chain is the primary target followed by the configured fallbacks, so a
+    fallback that repeats the session's current model — a common misconfiguration,
+    since callers prepend the live ``(url, model)`` to ``default_model_fallbacks``
+    — would otherwise make the chain re-attempt the very route that just failed:
+    a wasted round-trip plus a spurious ``fallback`` notice for a switch that did
+    not happen. Headers are not part of the key; the first tuple (with its
+    headers) is the one kept.
+    """
+    seen = set()
+    out = []
+    for c in candidates or []:
+        if not c or not c[0] or not c[1]:
+            continue
+        key = (c[0], c[1])
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(c)
+    return out
 
 
 def llm_call_with_fallback(candidates, messages, **kwargs) -> str:
@@ -842,7 +907,7 @@ def llm_call_with_fallback(candidates, messages, **kwargs) -> str:
     the next candidate. The dead-host cooldown inside `llm_call` makes repeat
     attempts at an offline primary effectively free.
     """
-    cands = [c for c in (candidates or []) if c and c[0] and c[1]]
+    cands = _dedupe_candidates(candidates)
     if not cands:
         raise HTTPException(503, "No model endpoint configured")
     last_err = None
@@ -859,7 +924,7 @@ def llm_call_with_fallback(candidates, messages, **kwargs) -> str:
 
 async def llm_call_async_with_fallback(candidates, messages, **kwargs) -> str:
     """Async variant of `llm_call_with_fallback` — same semantics."""
-    cands = [c for c in (candidates or []) if c and c[0] and c[1]]
+    cands = _dedupe_candidates(candidates)
     if not cands:
         raise HTTPException(503, "No model endpoint configured")
     last_err = None
@@ -964,7 +1029,8 @@ async def llm_call_async(
                 elif provider == "ollama":
                     response = _parse_ollama_response(data)
                 else:
-                    response = data["choices"][0]["message"]["content"]
+                    msg = data["choices"][0]["message"]
+                    response = msg.get("content") or msg.get("reasoning_content") or ""
                 _set_cached_response(cache_key, response)
                 return response
             except Exception:
@@ -1126,9 +1192,13 @@ async def stream_llm(url: str, model: str, messages: List[Dict], temperature: fl
                     yield f'event: error\ndata: {json.dumps({"status": r.status_code, "text": friendly, "raw": raw[:500]})}\n\n'
                     return
                 async for line in r.aiter_lines():
-                    if not line or not line.startswith("data: "):
+                    # SSE allows "data:value" with no space after the colon
+                    # (the space is optional per the spec). Some gateways and
+                    # local servers omit it; gating on "data: " dropped their
+                    # entire stream.
+                    if not line or not line.startswith("data:"):
                         continue
-                    data = line[6:].strip()
+                    data = line[5:].strip()
                     if not data or not data.startswith("{"):
                         continue
                     try:
@@ -1241,8 +1311,11 @@ async def stream_llm(url: str, model: str, messages: List[Dict], temperature: fl
                 if not line:
                     continue
 
-                if line.startswith("data: "):
-                    data = line[6:].strip()
+                # SSE allows "data:value" with no space after the colon; gating
+                # on "data: " silently dropped content + usage from providers
+                # that omit it.
+                if line.startswith("data:"):
+                    data = line[5:].strip()
                     if data == "[DONE]":
                         tc_event = _emit_tool_calls()
                         if tc_event:
@@ -1257,7 +1330,19 @@ async def stream_llm(url: str, model: str, messages: List[Dict], temperature: fl
                                 # Usage chunk (from stream_options)
                                 _choices = j.get("choices") or []
                                 _delta0 = _choices[0].get("delta") if _choices else None
-                                if "usage" in j and _delta0 in (None, {}, {"content": None}):
+                                # Capture usage whenever the chunk carries it and
+                                # the delta has no actual output. Some gateways /
+                                # local servers attach usage to the FINAL delta,
+                                # which also carries role/finish_reason (so it is
+                                # not exactly None/{}/{"content": None}); gating on
+                                # those exact shapes discarded their token counts.
+                                _delta_has_output = isinstance(_delta0, dict) and (
+                                    _delta0.get("content")
+                                    or _delta0.get("reasoning_content")
+                                    or _delta0.get("reasoning")
+                                    or _delta0.get("tool_calls")
+                                )
+                                if "usage" in j and not _delta_has_output:
                                     u = j["usage"]
                                     _usage_data = {"input_tokens": u.get("prompt_tokens", 0), "output_tokens": u.get("completion_tokens", 0)}
                                     # llama.cpp puts a `timings` block alongside `usage` with the
@@ -1395,7 +1480,7 @@ async def stream_llm_with_fallback(candidates, messages, **kwargs):
 
     Yields the same SSE chunk protocol as stream_llm.
     """
-    cands = [c for c in (candidates or []) if c and c[0] and c[1]]
+    cands = _dedupe_candidates(candidates)
     if not cands:
         yield f'event: error\ndata: {json.dumps({"error": "No model endpoint configured", "status": 503})}\n\n'
         return
