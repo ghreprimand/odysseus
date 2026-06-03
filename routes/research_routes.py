@@ -37,6 +37,27 @@ def _first_chat_model(models) -> str:
     return (models[0] if models else "")
 
 
+def _endpoint_default_model(ep) -> str:
+    """First chat model an endpoint offers, honoring admin-pinned model IDs.
+
+    Pinned model IDs (cloud deployment IDs) live in pinned_models and never
+    appear in cached_models, so picking from cached alone yields no model for a
+    pinned-only endpoint. Merge cached + pinned, then pick the first chat model.
+    """
+    out = []
+    for raw in (getattr(ep, "cached_models", None), getattr(ep, "pinned_models", None)):
+        if not raw:
+            continue
+        try:
+            vals = json.loads(raw) if isinstance(raw, str) else raw
+        except Exception:
+            vals = []
+        for v in (vals or []):
+            if v not in out:
+                out.append(v)
+    return _first_chat_model(out)
+
+
 def _resolve_research_endpoint(sess) -> tuple:
     """Return (endpoint_url, model, headers) for Deep Research, checking admin overrides."""
     url, model, headers = resolve_endpoint(
@@ -382,13 +403,10 @@ def setup_research_routes(research_handler, session_manager=None) -> APIRouter:
                 ep_headers = build_headers(ep.api_key, base)
                 ep_model = body.model or ""
                 if not ep_model:
-                    try:
-                        import json as _json
-                        models = _json.loads(ep.cached_models) if ep.cached_models else []
-                        if models:
-                            ep_model = _first_chat_model(models)
-                    except Exception:
-                        pass
+                    # Honor admin-pinned model IDs: a pinned-only endpoint has
+                    # empty cached_models, so picking from cached alone left the
+                    # research model empty and the run failed with model="".
+                    ep_model = _endpoint_default_model(ep)
             finally:
                 db.close()
         else:
