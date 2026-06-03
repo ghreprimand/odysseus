@@ -121,6 +121,19 @@ def test_url_match_normalizes_v1_suffix():
     assert ep is not None and ep.owner == "alice"
 
 
+def test_url_match_rejects_disabled_endpoint():
+    # The caller owns a row whose URL matches, but it's disabled — its api_key
+    # must not be borrowed (same constraint as the fallback path).
+    rows = [_ep(URL, "alice", is_enabled=False)]
+    assert _resolve(rows, "alice", URL) is None
+
+
+def test_url_match_rejects_non_image_endpoint():
+    # Owned + URL matches, but it's an llm endpoint, not image.
+    rows = [_ep(URL, "alice", model_type="llm")]
+    assert _resolve(rows, "alice", URL) is None
+
+
 # --- first-enabled fallback (no _endpoint) -----------------------------------
 
 def test_fallback_never_picks_another_owners_endpoint():
