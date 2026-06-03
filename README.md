@@ -200,9 +200,12 @@ docker compose exec odysseus sh -lc 'test -e /dev/kfd && test -d /dev/dri && ls 
 > container confirms Docker GPU access, but llama.cpp also needs `cudart` and
 > the CUDA Toolkit at runtime. If Cookbook logs show `Unable to find cudart
 > library`, `Could NOT find CUDAToolkit`, `CUDA Toolkit not found`, or
-> tensors/layers assigned to CPU, that is a Cookbook/llama.cpp build issue —
-> not a Docker passthrough failure. Re-install the serve engine via
-> **Cookbook → Dependencies** to get a CUDA-enabled build.
+> tensors/layers assigned to CPU, that is a Cookbook/llama.cpp build issue,
+> not a Docker passthrough failure. Make a CUDA toolkit (`nvcc` and `cudart`)
+> available in the container, then force a fresh CUDA build of `llama-server`:
+> the existing CPU-only build is cached and reused, so re-serving alone will
+> not rebuild it. See [llama.cpp builds CPU-only despite a working
+> GPU](docs/self-host-troubleshooting.md#llamacpp-builds-cpu-only-despite-a-working-gpu).
 >
 > The same split applies to AMD/ROCm: seeing `/dev/kfd` and `/dev/dri` inside
 > the container confirms device passthrough, not ROCm userspace or a

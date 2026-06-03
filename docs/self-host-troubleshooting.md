@@ -424,6 +424,70 @@ docker compose exec odysseus nvidia-smi -L
 If that command fails, fix the host Docker GPU runtime before debugging
 Odysseus.
 
+### llama.cpp builds CPU-only despite a working GPU
+
+`nvidia-smi` passing inside the container only proves driver passthrough. It
+does not mean a CUDA toolkit was present when Cookbook compiled `llama-server`.
+The first time you serve, Cookbook builds llama.cpp from source and picks its
+backend automatically:
+
+- ROCm/HIP toolchain present: HIP (AMD) build
+- `nvcc` present: CUDA build
+- neither: CPU-only build
+
+If no `nvcc` was on `PATH` at build time, you get a CPU-only `llama-server`, and
+at serve time it prints:
+
+```text
+warning: no usable GPU found, --gpu-layers option will be ignored
+warning: one possible reason is that llama.cpp was compiled without GPU support
+```
+
+The build runs once. Cookbook only compiles when `llama-server` is not already
+on `PATH`, so re-launching the serve task reuses the cached CPU-only binary and
+will not rebuild on its own. To get a CUDA build you must make a toolkit
+available and then clear the cached build.
+
+1. Open a shell in the container:
+
+   ```bash
+   docker compose exec odysseus bash
+   ```
+
+2. Confirm the cause (most often there is no compiler):
+
+   ```bash
+   command -v nvcc || echo "no nvcc: this is why the build was CPU-only"
+   ```
+
+3. Make a CUDA toolkit available. The bootstrap auto-detects CUDA pip wheels
+   under `~/.local`, so the lightest option is:
+
+   ```bash
+   pip install --user nvidia-cuda-nvcc-cu12 nvidia-cuda-runtime-cu12
+   ```
+
+   Installing the full CUDA Toolkit works too and is more robust. Match the CUDA
+   version to your GPU: older cards (Pascal sm_61, the GTX 10-series) need
+   CUDA 12.8+ and cannot build with CUDA 13.
+
+4. Clear the cached CPU-only build so the next serve recompiles, then launch the
+   serve task again from Cookbook:
+
+   ```bash
+   rm -f ~/bin/llama-server
+   rm -rf ~/llama.cpp/build
+   ```
+
+   A successful CUDA build logs `CUDA nvcc found ... building llama-server with
+   CUDA (GPU) support`, and the serve no longer prints the CPU-only warning.
+
+Hand changes inside the container can be lost on a full `docker compose down`
+and rebuild, so once it works, bake the toolkit into your image to make it
+stick. If the rebuild fails with `Could NOT find CUDAToolkit (missing:
+CUDA_CUDART)`, the compiler is present but the runtime is not; install the
+matching `cudart`/runtime package as well.
+
 ### AMD GPU is not detected in Docker
 
 Set the AMD overlay and render group ID:
