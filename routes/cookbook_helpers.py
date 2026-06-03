@@ -675,6 +675,29 @@ def _append_llama_cpp_linux_accel_build_lines(runner_lines: list[str]) -> None:
     runner_lines.append('    fi')
 
 
+def _append_llama_cpp_serve_cuda_env_lines(runner_lines: list[str]) -> None:
+    """Put pip-installed CUDA runtime libraries on LD_LIBRARY_PATH before serving.
+
+    The Linux build (``_append_llama_cpp_linux_accel_build_lines``) compiles
+    ``llama-server`` with ``-DGGML_CUDA=ON`` when a CUDA toolchain is present,
+    which dynamically links the wheel's ``libcudart`` / ``libcublas``. Those
+    wheels install their ``.so`` files under
+    ``~/.local/lib/python*/site-packages/nvidia/*/lib``, which is not on the
+    dynamic loader's default search path, and the build never runs ``ldconfig``.
+    Without this, the GPU-built binary cannot load the CUDA runtime at serve
+    time and llama.cpp falls back to CPU with ``warning: no usable GPU found``
+    (#2239). This is the runtime mirror of the build-time PATH/CUDA_HOME export.
+
+    It is a no-op when no such wheels are installed (the ``[ -d ]`` guard) and is
+    skipped on macOS, which serves via Metal rather than CUDA.
+    """
+    runner_lines.append('if [ "$(uname -s)" != "Darwin" ]; then')
+    runner_lines.append('  for _culib in ~/.local/lib/python*/site-packages/nvidia/*/lib; do')
+    runner_lines.append('    [ -d "$_culib" ] && export LD_LIBRARY_PATH="$_culib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"')
+    runner_lines.append('  done')
+    runner_lines.append('fi')
+
+
 def _llama_cpp_rebuild_cmd() -> str:
     """Shell command that clears the Cookbook-managed llama.cpp build.
 
@@ -918,6 +941,14 @@ def _diagnose_serve_output(text: str) -> dict | None:
             r"Address already in use|bind.*address.*in use",
             "Port is already in use.",
             [{"label": "retry on port 8001", "op": "replace", "flag": "--port", "value": "8001"}],
+        ),
+        (
+            r"no usable GPU found|--gpu-layers option will be ignored|ggml_cuda_init.*failed|libcu(dart|blas)[^ ]*\.so[^ ]*: cannot open",
+            "llama.cpp was built with CUDA but the CUDA runtime libraries are not loadable at serve time, so it fell back to CPU.",
+            [
+                {"label": "rebuild llama.cpp so it recompiles against the current CUDA toolchain", "op": "manual"},
+                {"label": "install the CUDA runtime wheels (pip install nvidia-cuda-runtime-cu12 nvidia-cublas-cu12) and re-serve", "op": "manual"},
+            ],
         ),
         (
             r"No CUDA GPUs are available|no GPU.*found|CUDA_VISIBLE_DEVICES.*invalid",

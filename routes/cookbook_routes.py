@@ -38,7 +38,8 @@ from routes.cookbook_helpers import (
     _validate_local_dir, _validate_ssh_port, _validate_gpus, _shell_path,
     _ps_squote, _bash_squote, _validate_serve_cmd, _parse_serve_phase,
     _safe_env_prefix, _local_tooling_path_export, _append_serve_preflight_exit_lines,
-    _append_serve_exit_code_lines, _append_llama_cpp_linux_accel_build_lines, _cached_model_scan_script,
+    _append_serve_exit_code_lines, _append_llama_cpp_linux_accel_build_lines,
+    _append_llama_cpp_serve_cuda_env_lines, _cached_model_scan_script,
     _append_vllm_linux_preflight_lines, _ollama_bind_from_cmd, _pip_install_fallback_chain,
     _pip_install_no_cache, _user_shell_path_bootstrap, _venv_safe_local_pip_install_cmd,
     _diagnose_serve_output,
@@ -1033,6 +1034,10 @@ def setup_cookbook_routes() -> APIRouter:
                     runner_lines.append('  ODYSSEUS_PREFLIGHT_EXIT=127')
                     runner_lines.append('fi')
                 else:
+                    # A CUDA-built llama-server links the pip wheel's libcudart/libcublas,
+                    # which live off the loader's default path. Expose them at serve time
+                    # (not just during the build) or it silently falls back to CPU (#2239).
+                    _append_llama_cpp_serve_cuda_env_lines(runner_lines)
                     runner_lines.append('if [ -d /data/data/com.termux ]; then')
                     runner_lines.append('  # Termux: no native build — use the Python bindings (CPU).')
                     runner_lines.append('  if ! python3 -c "import llama_cpp" 2>/dev/null; then')
