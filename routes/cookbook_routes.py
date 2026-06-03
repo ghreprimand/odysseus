@@ -37,7 +37,8 @@ from routes.cookbook_helpers import (
     _validate_local_dir, _validate_ssh_port, _validate_gpus, _shell_path,
     _ps_squote, _bash_squote, _validate_serve_cmd, _parse_serve_phase,
     _safe_env_prefix, _local_tooling_path_export, _append_serve_preflight_exit_lines,
-    _append_serve_exit_code_lines, _append_llama_cpp_linux_accel_build_lines, _cached_model_scan_script,
+    _append_serve_exit_code_lines, _append_llama_cpp_linux_accel_build_lines,
+    _append_llama_cpp_serve_cuda_env_lines, _cached_model_scan_script,
     _ollama_bind_from_cmd, _pip_install_fallback_chain, _pip_install_no_cache,
     _user_shell_path_bootstrap, _venv_safe_local_pip_install_cmd,
     ModelDownloadRequest, ServeRequest,
@@ -144,6 +145,14 @@ def setup_cookbook_routes() -> APIRouter:
                 r"Address already in use|bind.*address.*in use",
                 "Port is already in use.",
                 [{"label": "retry on port 8001", "op": "replace", "flag": "--port", "value": "8001"}],
+            ),
+            (
+                r"no usable GPU found|--gpu-layers option will be ignored|ggml_cuda_init.*failed|libcu(dart|blas)[^ ]*\.so[^ ]*: cannot open",
+                "llama.cpp was built with CUDA but the CUDA runtime libraries are not loadable at serve time, so it fell back to CPU.",
+                [
+                    {"label": "rebuild llama.cpp so it recompiles against the current CUDA toolchain", "op": "manual"},
+                    {"label": "install the CUDA runtime wheels (pip install nvidia-cuda-runtime-cu12 nvidia-cublas-cu12) and re-serve", "op": "manual"},
+                ],
             ),
             (
                 r"No CUDA GPUs are available|no GPU.*found|CUDA_VISIBLE_DEVICES.*invalid",
@@ -1028,6 +1037,10 @@ def setup_cookbook_routes() -> APIRouter:
                 # ollama is found (otherwise macOS falls back to a slow source build).
                 # /opt/homebrew = Apple Silicon, /usr/local = Intel; harmless on Linux.
                 runner_lines.append('export PATH="$HOME/.local/bin:$HOME/bin:$HOME/llama.cpp/build/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"')
+                # A CUDA-built llama-server links the pip wheel's libcudart/libcublas,
+                # which live off the loader's default path. Expose them at serve time
+                # (not just during the build) or it silently falls back to CPU (#2239).
+                _append_llama_cpp_serve_cuda_env_lines(runner_lines)
                 runner_lines.append('if [ -d /data/data/com.termux ]; then')
                 runner_lines.append('  # Termux: no native build — use the Python bindings (CPU).')
                 runner_lines.append('  if ! python3 -c "import llama_cpp" 2>/dev/null; then')

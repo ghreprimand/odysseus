@@ -625,6 +625,29 @@ def _append_llama_cpp_linux_accel_build_lines(runner_lines: list[str]) -> None:
     runner_lines.append('    fi')
 
 
+def _append_llama_cpp_serve_cuda_env_lines(runner_lines: list[str]) -> None:
+    """Put pip-installed CUDA runtime libraries on LD_LIBRARY_PATH before serving.
+
+    The Linux build (``_append_llama_cpp_linux_accel_build_lines``) compiles
+    ``llama-server`` with ``-DGGML_CUDA=ON`` when a CUDA toolchain is present,
+    which dynamically links the wheel's ``libcudart`` / ``libcublas``. Those
+    wheels install their ``.so`` files under
+    ``~/.local/lib/python*/site-packages/nvidia/*/lib``, which is not on the
+    dynamic loader's default search path, and the build never runs ``ldconfig``.
+    Without this, the GPU-built binary cannot load the CUDA runtime at serve
+    time and llama.cpp falls back to CPU with ``warning: no usable GPU found``
+    (#2239). This is the runtime mirror of the build-time PATH/CUDA_HOME export.
+
+    It is a no-op when no such wheels are installed (the ``[ -d ]`` guard) and is
+    skipped on macOS, which serves via Metal rather than CUDA.
+    """
+    runner_lines.append('if [ "$(uname -s)" != "Darwin" ]; then')
+    runner_lines.append('  for _culib in ~/.local/lib/python*/site-packages/nvidia/*/lib; do')
+    runner_lines.append('    [ -d "$_culib" ] && export LD_LIBRARY_PATH="$_culib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"')
+    runner_lines.append('  done')
+    runner_lines.append('fi')
+
+
 def _llama_cpp_rebuild_cmd() -> str:
     """Shell command that clears the Cookbook-managed llama.cpp build.
 
