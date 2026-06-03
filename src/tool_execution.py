@@ -12,11 +12,41 @@ import collections
 import json
 import logging
 import os
+import signal
 import sys
 import time
 from typing import Any, Awaitable, Callable, Dict, Optional, Tuple
 
+from core.platform_compat import IS_WINDOWS, kill_process_tree
 from src.tool_security import is_public_blocked_tool, owner_is_admin_or_single_user
+
+
+def _kill_proc_tree(proc) -> None:
+    """Hard-kill ``proc`` and every descendant in its process group.
+
+    The agent's bash/python tools can background grandchildren (``foo &``, a
+    pipeline, a dev server). ``proc.kill()`` signals only the direct child, so
+    those grandchildren get reparented to init and keep running after the user
+    hits stop — the "model in agent mode sometimes cannot be stopped" report in
+    issue #1131. The tool subprocesses are spawned with ``start_new_session``
+    so the child leads its own process group, letting us SIGKILL the whole
+    group at once. Falls back to killing just the child if the group signal is
+    unavailable (e.g. the child already reaped or never became a leader).
+    """
+    pid = getattr(proc, "pid", None)
+    if not pid:
+        return
+    if IS_WINDOWS:
+        # No POSIX process groups; taskkill /F /T walks and kills the tree.
+        kill_process_tree(pid)
+        return
+    try:
+        os.killpg(os.getpgid(pid), signal.SIGKILL)
+    except Exception:
+        try:
+            proc.kill()
+        except Exception:
+            pass
 
 MAX_OUTPUT_CHARS = 10_000
 MAX_READ_CHARS = 20_000
@@ -257,22 +287,17 @@ async def _run_subprocess_streaming(
         await asyncio.wait_for(proc.wait(), timeout=timeout)
     except asyncio.TimeoutError:
         timed_out = True
-        try:
-            proc.kill()
-        except Exception:
-            pass
+        _kill_proc_tree(proc)
         try:
             await asyncio.wait_for(proc.wait(), timeout=2)
         except Exception:
             pass
     except asyncio.CancelledError:
-        # User hit stop / SSE stream torn down. Kill the child so it
-        # doesn't keep running orphaned. Re-raise so the agent loop's
-        # cancellation propagates as the user expects.
-        try:
-            proc.kill()
-        except Exception:
-            pass
+        # User hit stop / SSE stream torn down. Kill the child AND its
+        # descendants so a backgrounded grandchild doesn't keep running
+        # orphaned (#1131). Re-raise so the agent loop's cancellation
+        # propagates as the user expects.
+        _kill_proc_tree(proc)
         try:
             await asyncio.wait_for(proc.wait(), timeout=2)
         except Exception:
@@ -470,6 +495,10 @@ async def _direct_fallback(
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 env=_subproc_env,
+                # Own process group so stop/timeout can kill the whole tree,
+                # not just the shell, leaving backgrounded children orphaned
+                # (#1131). POSIX-only; ignored on Windows (taskkill /T instead).
+                start_new_session=True,
             )
             stdout, stderr, rc, timed_out = await _run_subprocess_streaming(
                 proc,
@@ -496,6 +525,9 @@ async def _direct_fallback(
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 env=_subproc_env,
+                # Own process group so stop/timeout kills any grandchildren the
+                # code spawned, not just the interpreter (#1131). POSIX-only.
+                start_new_session=True,
             )
             stdout, stderr, rc, timed_out = await _run_subprocess_streaming(
                 proc,
