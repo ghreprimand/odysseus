@@ -630,8 +630,17 @@ def _append_llama_cpp_linux_accel_build_lines(runner_lines: list[str]) -> None:
     # so cmake's CUDA configure can find it. We keep this after the ROCm/HIP
     # check — a machine with both stacks should honor the native HIP toolchain on
     # AMD hosts instead of accidentally preferring a stray nvcc wheel.
-    runner_lines.append('    for _cudir in ~/.local/lib/python*/site-packages/nvidia/cu13 ~/.local/lib/python*/site-packages/nvidia/cu12 ~/.local/lib/python*/site-packages/nvidia/cuda_nvcc; do')
-    runner_lines.append('      [ -x "$_cudir/bin/nvcc" ] && export CUDA_HOME="$_cudir" && export PATH="$_cudir/bin:$PATH" && break')
+    #
+    # The wheels can land in the per-user tree (~/.local, `pip install --user`) or
+    # a system tree — e.g. `pip install` as root inside a Docker image puts them
+    # under /usr/local/lib or /usr/lib, and Debian/Ubuntu use dist-packages while
+    # other distros use site-packages. Searching only ~/.local missed all of those,
+    # so a GPU host that installed the CUDA wheels as root still fell back to a CPU
+    # build with "no HIP/CUDA toolchain found". Search every base/layout. (#2377)
+    runner_lines.append('    for _cubase in ~/.local /usr/local /usr; do')
+    runner_lines.append('      for _cudir in "$_cubase"/lib/python*/site-packages/nvidia/cu13 "$_cubase"/lib/python*/site-packages/nvidia/cu12 "$_cubase"/lib/python*/site-packages/nvidia/cuda_nvcc "$_cubase"/lib/python*/dist-packages/nvidia/cu13 "$_cubase"/lib/python*/dist-packages/nvidia/cu12 "$_cubase"/lib/python*/dist-packages/nvidia/cuda_nvcc "$_cubase"/lib/python3/dist-packages/nvidia/cu13 "$_cubase"/lib/python3/dist-packages/nvidia/cu12 "$_cubase"/lib/python3/dist-packages/nvidia/cuda_nvcc; do')
+    runner_lines.append('        [ -x "$_cudir/bin/nvcc" ] && export CUDA_HOME="$_cudir" && export PATH="$_cudir/bin:$PATH" && break 2')
+    runner_lines.append('      done')
     runner_lines.append('    done')
     # rm -rf build so a prior poisoned CMakeCache.txt (e.g. from a failed CUDA
     # or HIP attempt) doesn't cause the next configure to reuse stale settings.
