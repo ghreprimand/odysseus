@@ -11,24 +11,19 @@ Both must be owner-scoped (caller's own rows + legacy null-owner shared rows) so
 an image-privileged user can't pass another user's endpoint URL — or fall through
 to their first image endpoint — and spend that owner's API key / quota. Mirrors
 the session / research / compare / resolve_session_auth owner-scope fixes.
+
+Test isolation: we drive the real `_owned_image_endpoint` against a tiny fake
+query, swapping in a fake ModelEndpoint via monkeypatch for each test. Do not
+mutate core.database at import time; those globals are shared by later tests
+that build real SQLAlchemy tables.
 """
 
-import sys
-import types
 from types import SimpleNamespace
-from unittest.mock import MagicMock
 
-if "core.database" not in sys.modules:
-    sys.modules["core.database"] = types.ModuleType("core.database")
-_cd = sys.modules["core.database"]
-_cd.Base = MagicMock()
-for _name in (
-    "Session", "SessionLocal", "GalleryImage", "GalleryAlbum", "ModelEndpoint",
-):
-    if not hasattr(_cd, _name):
-        setattr(_cd, _name, MagicMock())
+import pytest
 
-from routes.gallery_routes import _owned_image_endpoint  # noqa: E402
+import routes.gallery_routes as gallery_routes
+from routes.gallery_routes import _owned_image_endpoint
 
 
 class _Predicate:
@@ -86,10 +81,14 @@ def _ep(base_url, owner, *, is_enabled=True, model_type="image"):
                            model_type=model_type, api_key="sk-secret")
 
 
-def _resolve(rows, owner, target_url=None):
-    import routes.gallery_routes as _g
-    _g.ModelEndpoint = _ModelEndpoint
-    return _owned_image_endpoint(_DB(rows), owner, target_url)
+@pytest.fixture
+def resolve(monkeypatch):
+    monkeypatch.setattr(gallery_routes, "ModelEndpoint", _ModelEndpoint)
+
+    def _resolve(rows, owner, target_url=None):
+        return _owned_image_endpoint(_DB(rows), owner, target_url)
+
+    return _resolve
 
 
 URL = "https://images.example.com/v1"
@@ -97,66 +96,66 @@ URL = "https://images.example.com/v1"
 
 # --- caller-supplied _endpoint (URL match) -----------------------------------
 
-def test_url_match_rejects_another_owners_private_endpoint():
+def test_url_match_rejects_another_owners_private_endpoint(resolve):
     rows = [_ep(URL, "bob")]
-    assert _resolve(rows, "alice", URL) is None
+    assert resolve(rows, "alice", URL) is None
 
 
-def test_url_match_returns_callers_own_endpoint():
+def test_url_match_returns_callers_own_endpoint(resolve):
     rows = [_ep(URL, "bob"), _ep(URL, "alice")]
-    ep = _resolve(rows, "alice", URL)
+    ep = resolve(rows, "alice", URL)
     assert ep is not None and ep.owner == "alice"
 
 
-def test_url_match_allows_legacy_null_owner_shared_row():
+def test_url_match_allows_legacy_null_owner_shared_row(resolve):
     rows = [_ep(URL, None)]
-    ep = _resolve(rows, "alice", URL)
+    ep = resolve(rows, "alice", URL)
     assert ep is not None and ep.owner is None
 
 
-def test_url_match_normalizes_v1_suffix():
+def test_url_match_normalizes_v1_suffix(resolve):
     # caller passes the URL without /v1; the owned row stores it with /v1.
     rows = [_ep("https://images.example.com/v1", "alice")]
-    ep = _resolve(rows, "alice", "https://images.example.com")
+    ep = resolve(rows, "alice", "https://images.example.com")
     assert ep is not None and ep.owner == "alice"
 
 
-def test_url_match_rejects_disabled_endpoint():
+def test_url_match_rejects_disabled_endpoint(resolve):
     # The caller owns a row whose URL matches, but it's disabled — its api_key
     # must not be borrowed (same constraint as the fallback path).
     rows = [_ep(URL, "alice", is_enabled=False)]
-    assert _resolve(rows, "alice", URL) is None
+    assert resolve(rows, "alice", URL) is None
 
 
-def test_url_match_rejects_non_image_endpoint():
+def test_url_match_rejects_non_image_endpoint(resolve):
     # Owned + URL matches, but it's an llm endpoint, not image.
     rows = [_ep(URL, "alice", model_type="llm")]
-    assert _resolve(rows, "alice", URL) is None
+    assert resolve(rows, "alice", URL) is None
 
 
 # --- first-enabled fallback (no _endpoint) -----------------------------------
 
-def test_fallback_never_picks_another_owners_endpoint():
+def test_fallback_never_picks_another_owners_endpoint(resolve):
     rows = [_ep(URL, "bob"), _ep("https://shared.example/v1", None)]
-    ep = _resolve(rows, "alice")
+    ep = resolve(rows, "alice")
     assert ep is not None and ep.owner is None
 
 
-def test_fallback_returns_none_when_only_others():
+def test_fallback_returns_none_when_only_others(resolve):
     rows = [_ep(URL, "bob"), _ep("https://c.example/v1", "carol")]
-    assert _resolve(rows, "alice") is None
+    assert resolve(rows, "alice") is None
 
 
-def test_fallback_skips_non_image_and_disabled():
+def test_fallback_skips_non_image_and_disabled(resolve):
     rows = [
         _ep(URL, "alice", model_type="llm"),
         _ep("https://d.example/v1", "alice", is_enabled=False),
         _ep("https://img.example/v1", "alice"),
     ]
-    ep = _resolve(rows, "alice")
+    ep = resolve(rows, "alice")
     assert ep is not None and ep.base_url == "https://img.example/v1"
 
 
-def test_null_owner_is_legacy_single_user_noop():
+def test_null_owner_is_legacy_single_user_noop(resolve):
     rows = [_ep(URL, "bob")]
-    assert _resolve(rows, None, URL).owner == "bob"
+    assert resolve(rows, None, URL).owner == "bob"
