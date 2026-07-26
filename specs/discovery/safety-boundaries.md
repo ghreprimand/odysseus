@@ -1,7 +1,7 @@
 # Safety boundaries
 
 > [!IMPORTANT]
-> Broad authority does not by itself establish a vulnerability. This map records code-grounded safeguards, confirmed risks or gaps, and unverified behaviour. No destructive test, external connection, or real credential was used for this map.
+> This non-canonical discovery map records code-grounded safeguards, confirmed risks or gaps, and unverified behaviour. Broad authority does not by itself establish a vulnerability. Verify the cited source before relying on a finding. No destructive test, external connection, or real credential was used for this map.
 
 ## Navigate the boundaries
 
