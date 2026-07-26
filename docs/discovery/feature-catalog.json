@@ -1,0 +1,4797 @@
+[
+  {
+    "id": "CHAT-001",
+    "domain": "chat",
+    "name": "Core Chat Streaming & SSE Message Generation",
+    "purpose": "Handles real-time Server-Sent Events (SSE) chat streaming, token rendering, and model response generation.",
+    "status": "verified",
+    "frontend_entrypoints": [
+      "static/js/chatStream.js",
+      "static/js/chat.js",
+      "static/js/streamingRenderer.js"
+    ],
+    "backend_entrypoints": [
+      "routes/chat_routes.py:chat_stream",
+      "routes/chat_helpers.py:build_chat_context",
+      "src/chat_handler.py:ChatHandler.preprocess_message",
+      "src/chat_processor.py:ChatProcessor.build_context_preface",
+      "src/llm_core.py:stream_llm_with_fallback",
+      "src/agent_loop.py:stream_agent_loop"
+    ],
+    "routes": [
+      "/api/chat_stream",
+      "/api/chat"
+    ],
+    "configuration": [
+      "OPENAI_API_KEY",
+      "OLLAMA_BASE_URL",
+      "REQUEST_TIMEOUT"
+    ],
+    "persistence": [
+      "SESSIONS_FILE",
+      "DATA_DIR/sessions/"
+    ],
+    "dependencies": [
+      "fastapi",
+      "starlette.responses.StreamingResponse",
+      "httpx"
+    ],
+    "tests": [
+      "tests/test_chat_metrics.py",
+      "tests/test_resend_message_nondestructive.py"
+    ],
+    "documentation": [
+      "docs/chat.webm",
+      "README.md"
+    ],
+    "risks": [
+      "Stream interruption on connection drops requires retry logic."
+    ],
+    "unknowns": [],
+    "evidence": [
+      {
+        "path": "routes/chat_routes.py",
+        "symbol": "chat_stream",
+        "line_range": "L702-L1870",
+        "explanation": "POST /api/chat_stream SSE endpoint; builds the shared chat context, then dispatches to the chat-mode or agent-mode streaming path."
+      },
+      {
+        "path": "routes/chat_helpers.py",
+        "symbol": "build_chat_context",
+        "line_range": "L669-L863",
+        "explanation": "Shared context builder invoked by chat_stream; runs message preprocessing and assembles the memory/RAG/web context preface."
+      },
+      {
+        "path": "src/chat_handler.py",
+        "symbol": "ChatHandler.preprocess_message",
+        "line_range": "L123-L315",
+        "explanation": "Message preprocessing (attachments, URLs, tool preprocessing) reached from build_chat_context via routes/chat_helpers.py:preprocess."
+      },
+      {
+        "path": "src/chat_processor.py",
+        "symbol": "ChatProcessor.build_context_preface",
+        "line_range": "L263-L493",
+        "explanation": "Builds the retrieval and web-source context preface injected into the streamed request."
+      },
+      {
+        "path": "src/llm_core.py",
+        "symbol": "stream_llm_with_fallback",
+        "line_range": "L2794-L2895",
+        "explanation": "Chat-mode streaming dispatcher called from chat_stream; wraps stream_llm with an ordered provider fallback chain."
+      },
+      {
+        "path": "src/llm_core.py",
+        "symbol": "stream_llm",
+        "line_range": "L2131-L2151",
+        "explanation": "Per-request streaming entry wrapped by stream_llm_with_fallback; acquires the local model slot and delegates to _stream_llm_inner."
+      },
+      {
+        "path": "src/agent_loop.py",
+        "symbol": "stream_agent_loop",
+        "line_range": "L3079-L5248",
+        "explanation": "Agent-mode streaming path called from chat_stream when the request selects agent mode."
+      },
+      {
+        "path": "tests/test_chat_metrics.py",
+        "symbol": "test_stream_llm_passes_through_llamacpp_timings",
+        "line_range": "L129-L136",
+        "explanation": "Inspected unit test asserting stream_llm forwards backend generation timings into the emitted metrics chunk."
+      },
+      {
+        "path": "tests/test_resend_message_nondestructive.py",
+        "symbol": "test_resend_message_does_not_truncate_by_default",
+        "line_range": "L23-L36",
+        "explanation": "Inspected unit test asserting the frontend resend path does not truncate prior conversation turns."
+      }
+    ],
+    "verified_at_commit": "d8a2059df8e53bc7275c45339849d14c8651e73c",
+    "evidence_maturity": "E2",
+    "runtime_validation": {
+      "required": true,
+      "status": "pending",
+      "reason": "Requires access to a live LLM provider endpoint (OpenAI API key or local Ollama server)."
+    }
+  },
+  {
+    "id": "CHAT-002",
+    "domain": "chat",
+    "name": "Session Management & Conversation State",
+    "purpose": "Manages session creation, listing, switching, renaming, and persistence of conversation metadata.",
+    "status": "verified",
+    "frontend_entrypoints": [
+      "static/js/sessions.js",
+      "static/js/sidebar-layout.js"
+    ],
+    "backend_entrypoints": [
+      "routes/session_routes.py:setup_session_routes",
+      "core/session_manager.py:SessionManager"
+    ],
+    "routes": [
+      "/api/sessions",
+      "/api/sessions/{session_id}"
+    ],
+    "configuration": [
+      "SESSIONS_FILE",
+      "DATA_DIR/odysseus.db"
+    ],
+    "persistence": [
+      "DATA_DIR/sessions.json",
+      "SQLite session table"
+    ],
+    "dependencies": [
+      "sqlite3",
+      "pydantic"
+    ],
+    "tests": [
+      "tests/test_session_manager.py",
+      "tests/test_session_routes_utcnow.py"
+    ],
+    "documentation": [
+      "docs/setup.md"
+    ],
+    "risks": [
+      "Concurrent file writes to sessions.json under high load."
+    ],
+    "unknowns": [],
+    "evidence": [
+      {
+        "path": "routes/session_routes.py",
+        "symbol": "@router.get('/api/sessions')",
+        "line_range": "L150-L210",
+        "explanation": "Lists active sessions filtered by user owner scope."
+      },
+      {
+        "path": "core/session_manager.py",
+        "symbol": "SessionManager",
+        "line_range": "L30-L150",
+        "explanation": "Provides thread-safe session storage operations."
+      }
+    ],
+    "verified_at_commit": "d8a2059df8e53bc7275c45339849d14c8651e73c",
+    "evidence_maturity": "E0",
+    "runtime_validation": {
+      "required": false,
+      "status": "not-required",
+      "reason": "No separate environment-dependent runtime validation was identified during this documentation pass."
+    }
+  },
+  {
+    "id": "CHAT-003",
+    "domain": "chat",
+    "name": "Chat History & Message Editing/Truncation",
+    "purpose": "Provides history retrieval, message content updating, message deletion, and history branch truncation.",
+    "status": "verified",
+    "frontend_entrypoints": [
+      "static/js/chat.js",
+      "static/js/sessions.js"
+    ],
+    "backend_entrypoints": [
+      "routes/history/history_routes.py:setup_history_routes"
+    ],
+    "routes": [
+      "/api/history/{session_id}",
+      "/api/session/{session_id}/truncate",
+      "/api/session/{session_id}/edit-message"
+    ],
+    "configuration": [
+      "MAX_HISTORY_MESSAGES"
+    ],
+    "persistence": [
+      "DATA_DIR/sessions/"
+    ],
+    "dependencies": [
+      "sqlite3",
+      "fastapi"
+    ],
+    "tests": [
+      "tests/test_history_db_fallback_hidden.py",
+      "tests/test_truncate_message_count_regression.py"
+    ],
+    "documentation": [
+      "docs/attachments.md"
+    ],
+    "risks": [
+      "Truncating messages re-indexes context window and clears cached tool calls."
+    ],
+    "unknowns": [],
+    "evidence": [
+      {
+        "path": "routes/history/history_routes.py",
+        "symbol": "@router.get('/api/history/{session_id}')",
+        "line_range": "L178-L230",
+        "explanation": "Fetches message history timeline for a session."
+      },
+      {
+        "path": "routes/history_routes.py",
+        "symbol": "_sys.modules[__name__] = _canonical",
+        "line_range": "L1-L17",
+        "explanation": "Backward-compatibility shim module."
+      }
+    ],
+    "verified_at_commit": "d8a2059df8e53bc7275c45339849d14c8651e73c",
+    "evidence_maturity": "E0",
+    "runtime_validation": {
+      "required": false,
+      "status": "not-required",
+      "reason": "No separate environment-dependent runtime validation was identified during this documentation pass."
+    }
+  },
+  {
+    "id": "CHAT-004",
+    "domain": "chat",
+    "name": "File & Multimodal Attachment Handling",
+    "purpose": "Handles uploading, mime validation, image preview, vision encoding, and file attachments in chat messages.",
+    "status": "verified",
+    "frontend_entrypoints": [
+      "static/js/fileHandler.js",
+      "static/js/chat.js"
+    ],
+    "backend_entrypoints": [
+      "routes/upload_routes.py:setup_upload_routes",
+      "src/upload_handler.py:UploadHandler"
+    ],
+    "routes": [
+      "/api/upload",
+      "/api/upload/{file_id}/vision",
+      "/api/upload/cleanup"
+    ],
+    "configuration": [
+      "MAX_UPLOAD_SIZE_MB",
+      "ALLOWED_UPLOAD_EXTENSIONS"
+    ],
+    "persistence": [
+      "DATA_DIR/uploads/"
+    ],
+    "dependencies": [
+      "pillow",
+      "python-magic"
+    ],
+    "tests": [
+      "tests/test_upload_handler_atomicity.py",
+      "tests/test_upload_routes_owner_scope.py"
+    ],
+    "documentation": [
+      "docs/attachments.md"
+    ],
+    "risks": [
+      "Large file uploads may consume server disk space if cleanup task fails."
+    ],
+    "unknowns": [],
+    "evidence": [
+      {
+        "path": "routes/upload_routes.py",
+        "symbol": "@router.post('')",
+        "line_range": "L257-L310",
+        "explanation": "Accepts multi-part file uploads and generates vision metadata."
+      },
+      {
+        "path": "src/upload_handler.py",
+        "symbol": "UploadHandler.save_file",
+        "line_range": "L50-L140",
+        "explanation": "Validates upload size and atomicity on disk."
+      }
+    ],
+    "verified_at_commit": "d8a2059df8e53bc7275c45339849d14c8651e73c",
+    "evidence_maturity": "E0",
+    "runtime_validation": {
+      "required": false,
+      "status": "not-required",
+      "reason": "No separate environment-dependent runtime validation was identified during this documentation pass."
+    }
+  },
+  {
+    "id": "CHAT-005",
+    "domain": "chat",
+    "name": "Chat Message Search",
+    "purpose": "Enables full-text keyword search across stored chat messages and sessions.",
+    "status": "verified",
+    "frontend_entrypoints": [
+      "static/js/search-chat.js",
+      "static/js/search.js"
+    ],
+    "backend_entrypoints": [
+      "routes/search_routes.py:setup_search_routes",
+      "src/session_search.py:search_sessions"
+    ],
+    "routes": [
+      "/api/search/chat"
+    ],
+    "configuration": [
+      "SEARCH_INDEX_CACHE_TTL"
+    ],
+    "persistence": [
+      "SQLite FTS / session indices"
+    ],
+    "dependencies": [
+      "sqlite3"
+    ],
+    "tests": [
+      "tests/test_session_search.py",
+      "tests/test_session_search_batch_fetch.py"
+    ],
+    "documentation": [
+      "README.md"
+    ],
+    "risks": [
+      "Full table scans on un-indexed text columns for very large databases."
+    ],
+    "unknowns": [],
+    "evidence": [
+      {
+        "path": "routes/search_routes.py",
+        "symbol": "setup_search_routes",
+        "line_range": "L30-L80",
+        "explanation": "Registers chat message search endpoint."
+      },
+      {
+        "path": "src/session_search.py",
+        "symbol": "search_sessions",
+        "line_range": "L20-L90",
+        "explanation": "Executes query matching against session transcripts."
+      }
+    ],
+    "verified_at_commit": "d8a2059df8e53bc7275c45339849d14c8651e73c",
+    "evidence_maturity": "E0",
+    "runtime_validation": {
+      "required": false,
+      "status": "not-required",
+      "reason": "No separate environment-dependent runtime validation was identified during this documentation pass."
+    }
+  },
+  {
+    "id": "CHAT-006",
+    "domain": "chat",
+    "name": "System Prompts & Preset Management",
+    "purpose": "Provides creation, selection, and customization of system prompt presets for chat sessions.",
+    "status": "verified",
+    "frontend_entrypoints": [
+      "static/js/presets.js",
+      "static/js/settings.js"
+    ],
+    "backend_entrypoints": [
+      "routes/preset_routes.py:setup_preset_routes",
+      "src/preset_manager.py:PresetManager"
+    ],
+    "routes": [
+      "/api/presets",
+      "/api/presets/{preset_id}"
+    ],
+    "configuration": [
+      "PRESETS_FILE"
+    ],
+    "persistence": [
+      "DATA_DIR/presets.json"
+    ],
+    "dependencies": [
+      "pydantic",
+      "json"
+    ],
+    "tests": [
+      "tests/cli/test_preset_cli_store.py"
+    ],
+    "documentation": [
+      "README.md"
+    ],
+    "risks": [
+      "Invalid JSON syntax in user presets file can corrupt preset loading."
+    ],
+    "unknowns": [],
+    "evidence": [
+      {
+        "path": "routes/preset_routes.py",
+        "symbol": "setup_preset_routes",
+        "line_range": "L30-L110",
+        "explanation": "API routes for listing and modifying system prompt presets."
+      },
+      {
+        "path": "src/preset_manager.py",
+        "symbol": "PresetManager",
+        "line_range": "L15-L100",
+        "explanation": "Disk-backed manager for prompt presets."
+      }
+    ],
+    "verified_at_commit": "d8a2059df8e53bc7275c45339849d14c8651e73c",
+    "evidence_maturity": "E0",
+    "runtime_validation": {
+      "required": false,
+      "status": "not-required",
+      "reason": "No separate environment-dependent runtime validation was identified during this documentation pass."
+    }
+  },
+  {
+    "id": "CHAT-007",
+    "domain": "chat",
+    "name": "Emoji Rendering & Twemoji SVG Proxy",
+    "purpose": "Proxies Twemoji SVG icons locally to render flat SVG emojis in message text without external CDN dependencies.",
+    "status": "verified",
+    "frontend_entrypoints": [
+      "static/js/emojiPicker.js",
+      "static/js/emojiShortcodes.js"
+    ],
+    "backend_entrypoints": [
+      "routes/emoji_routes.py:setup_emoji_routes"
+    ],
+    "routes": [
+      "/api/emoji/{code}.svg"
+    ],
+    "configuration": [
+      "EMOJI_CACHE_DIR"
+    ],
+    "persistence": [
+      "DATA_DIR/emoji_cache/"
+    ],
+    "dependencies": [
+      "httpx",
+      "fastapi.responses.Response"
+    ],
+    "tests": [
+      "tests/test_censor_pref_js.py"
+    ],
+    "documentation": [
+      "README.md"
+    ],
+    "risks": [
+      "First request fetches SVG from remote CDN before caching locally."
+    ],
+    "unknowns": [],
+    "evidence": [
+      {
+        "path": "routes/emoji_routes.py",
+        "symbol": "setup_emoji_routes",
+        "line_range": "L20-L100",
+        "explanation": "Serves locally cached Twemoji SVGs."
+      }
+    ],
+    "verified_at_commit": "d8a2059df8e53bc7275c45339849d14c8651e73c",
+    "evidence_maturity": "E0",
+    "runtime_validation": {
+      "required": false,
+      "status": "not-required",
+      "reason": "No separate environment-dependent runtime validation was identified during this documentation pass."
+    }
+  },
+  {
+    "id": "CHAT-008",
+    "domain": "chat",
+    "name": "Input History Recall (Arrow Up)",
+    "purpose": "Allows users to cycle through previously sent prompt messages in the chat composer input using Arrow-Up/Down keys.",
+    "status": "verified",
+    "frontend_entrypoints": [
+      "static/js/composerArrowUpRecall.js",
+      "static/js/chat.js"
+    ],
+    "backend_entrypoints": [
+      "None (Pure client-side state feature)"
+    ],
+    "routes": [],
+    "configuration": [
+      "localStorage key: chat_composer_history"
+    ],
+    "persistence": [
+      "Browser localStorage"
+    ],
+    "dependencies": [
+      "Vanilla JavaScript DOM keyboard listeners"
+    ],
+    "tests": [],
+    "documentation": [
+      "README.md"
+    ],
+    "risks": [
+      "Client-side browser storage limits."
+    ],
+    "unknowns": [],
+    "evidence": [
+      {
+        "path": "static/js/composerArrowUpRecall.js",
+        "symbol": "initComposerRecall",
+        "line_range": "L1-L80",
+        "explanation": "Listens for ArrowUp keypress on composer textarea."
+      }
+    ],
+    "verified_at_commit": "d8a2059df8e53bc7275c45339849d14c8651e73c",
+    "evidence_maturity": "E0",
+    "runtime_validation": {
+      "required": false,
+      "status": "not-required",
+      "reason": "No separate environment-dependent runtime validation was identified during this documentation pass."
+    }
+  },
+  {
+    "id": "CHAT-009",
+    "domain": "chat",
+    "name": "Context Window Compaction & Truncation",
+    "purpose": "Compacts session transcript history when prompt size exceeds context limits using summarization.",
+    "status": "verified",
+    "frontend_entrypoints": [
+      "static/js/chat.js"
+    ],
+    "backend_entrypoints": [
+      "routes/history/history_routes.py:compact_session",
+      "src/context_compactor.py:compact_context"
+    ],
+    "routes": [
+      "/api/session/{session_id}/compact",
+      "/api/session/{session_id}/context"
+    ],
+    "configuration": [
+      "MAX_CONTEXT_TOKENS",
+      "COMPACTION_THRESHOLD"
+    ],
+    "persistence": [
+      "DATA_DIR/sessions/"
+    ],
+    "dependencies": [
+      "tiktoken",
+      "fastapi"
+    ],
+    "tests": [
+      "tests/test_context_compactor.py"
+    ],
+    "documentation": [
+      "specs/architecture-runtime-inventory.md"
+    ],
+    "risks": [
+      "Aggressive compaction may discard subtle user instructions."
+    ],
+    "unknowns": [],
+    "evidence": [
+      {
+        "path": "routes/history/history_routes.py",
+        "symbol": "@router.post('/api/session/{session_id}/compact')",
+        "line_range": "L751-L790",
+        "explanation": "Triggers context summarization and compaction."
+      },
+      {
+        "path": "src/context_compactor.py",
+        "symbol": "compact_context",
+        "line_range": "L25-L110",
+        "explanation": "Executes context token pruning and summary generation."
+      }
+    ],
+    "verified_at_commit": "d8a2059df8e53bc7275c45339849d14c8651e73c",
+    "evidence_maturity": "E0",
+    "runtime_validation": {
+      "required": false,
+      "status": "not-required",
+      "reason": "No separate environment-dependent runtime validation was identified during this documentation pass."
+    }
+  },
+  {
+    "id": "AGENT-001",
+    "domain": "agent",
+    "name": "Autonomous Agent Loop & Tool Execution Engine",
+    "purpose": "Executes multi-step agent reasoning loops, tool invocation parsing, and automated response generation.",
+    "status": "verified",
+    "frontend_entrypoints": [
+      "static/js/chatStream.js"
+    ],
+    "backend_entrypoints": [
+      "src/agent_loop.py:run_agent_loop",
+      "src/tool_execution.py:execute_tool_call"
+    ],
+    "routes": [
+      "/api/chat/stream"
+    ],
+    "configuration": [
+      "MAX_AGENT_STEPS",
+      "ENABLE_TOOL_EXECUTION"
+    ],
+    "persistence": [
+      "Session transcript tool calls"
+    ],
+    "dependencies": [
+      "asyncio",
+      "pydantic"
+    ],
+    "tests": [
+      "tests/test_tool_policy.py",
+      "tests/test_unknown_tool_calls.py"
+    ],
+    "documentation": [
+      "specs/architecture-runtime-inventory.md"
+    ],
+    "risks": [
+      "Infinite tool loop if termination condition fails."
+    ],
+    "unknowns": [],
+    "evidence": [
+      {
+        "path": "src/agent_loop.py",
+        "symbol": "run_agent_loop",
+        "line_range": "L40-L210",
+        "explanation": "Core loop evaluating model tool requests and executing handlers."
+      },
+      {
+        "path": "src/tool_execution.py",
+        "symbol": "execute_tool_call",
+        "line_range": "L30-L150",
+        "explanation": "Dispatches tool invocation requests to underlying tool handlers."
+      }
+    ],
+    "verified_at_commit": "d8a2059df8e53bc7275c45339849d14c8651e73c",
+    "evidence_maturity": "E0",
+    "runtime_validation": {
+      "required": false,
+      "status": "not-required",
+      "reason": "No separate environment-dependent runtime validation was identified during this documentation pass."
+    }
+  },
+  {
+    "id": "AGENT-002",
+    "domain": "agent",
+    "name": "Scheduled Tasks & Event Bus Dispatcher",
+    "purpose": "Schedules background recurring or delayed tasks, emits event bus triggers, and executes automated flows.",
+    "status": "verified",
+    "frontend_entrypoints": [
+      "static/js/tasks.js"
+    ],
+    "backend_entrypoints": [
+      "routes/task_routes.py:setup_task_routes",
+      "src/task_scheduler.py:TaskScheduler",
+      "src/event_bus.py"
+    ],
+    "routes": [
+      "/api/tasks",
+      "/api/tasks/{task_id}/run",
+      "/api/tasks/{task_id}/pause",
+      "/api/tasks/{task_id}/resume"
+    ],
+    "configuration": [
+      "TASK_SCHEDULER_INTERVAL"
+    ],
+    "persistence": [
+      "DATA_DIR/tasks.db"
+    ],
+    "dependencies": [
+      "apscheduler",
+      "sqlite3"
+    ],
+    "tests": [
+      "tests/test_task_scheduler_cancel.py",
+      "tests/test_task_chain_owner_scope.py"
+    ],
+    "documentation": [
+      "README.md"
+    ],
+    "risks": [
+      "Task execution failure handling on system restart."
+    ],
+    "unknowns": [],
+    "evidence": [
+      {
+        "path": "routes/task_routes.py",
+        "symbol": "@router.get('')",
+        "line_range": "L341-L370",
+        "explanation": "Fetches active scheduled tasks."
+      },
+      {
+        "path": "src/task_scheduler.py",
+        "symbol": "TaskScheduler",
+        "line_range": "L40-L280",
+        "explanation": "Async task scheduler dispatching cron and delay triggers."
+      }
+    ],
+    "verified_at_commit": "d8a2059df8e53bc7275c45339849d14c8651e73c",
+    "evidence_maturity": "E0",
+    "runtime_validation": {
+      "required": false,
+      "status": "not-required",
+      "reason": "No separate environment-dependent runtime validation was identified during this documentation pass."
+    }
+  },
+  {
+    "id": "AGENT-003",
+    "domain": "agent",
+    "name": "Webhook Event Subscriptions & Trigger Processing",
+    "purpose": "Manages incoming/outgoing webhook subscriptions, endpoint authentication tokens, and event triggers.",
+    "status": "verified",
+    "frontend_entrypoints": [
+      "static/js/admin.js"
+    ],
+    "backend_entrypoints": [
+      "routes/webhook_routes.py:setup_webhook_routes",
+      "src/webhook_manager.py:WebhookManager"
+    ],
+    "routes": [
+      "/api/webhooks",
+      "/v1/chat",
+      "/api/webhooks/{webhook_id}/test"
+    ],
+    "configuration": [
+      "WEBHOOK_SECRET_KEY"
+    ],
+    "persistence": [
+      "DATA_DIR/webhooks.db"
+    ],
+    "dependencies": [
+      "httpx",
+      "sqlite3"
+    ],
+    "tests": [
+      "tests/test_webhook_ssrf_resilience.py",
+      "tests/test_webhook_trigger_auth_exempt.py"
+    ],
+    "documentation": [
+      "docs/pr-blocker-audit.md"
+    ],
+    "risks": [
+      "SSRF risks when contacting external webhook URLs if unvalidated."
+    ],
+    "unknowns": [],
+    "evidence": [
+      {
+        "path": "routes/webhook_routes.py",
+        "symbol": "@router.get('/webhooks')",
+        "line_range": "L71-L94",
+        "explanation": "Returns list of registered webhooks."
+      },
+      {
+        "path": "src/webhook_manager.py",
+        "symbol": "WebhookManager",
+        "line_range": "L30-L160",
+        "explanation": "Handles payload delivery and signature verification."
+      }
+    ],
+    "verified_at_commit": "d8a2059df8e53bc7275c45339849d14c8651e73c",
+    "evidence_maturity": "E0",
+    "runtime_validation": {
+      "required": false,
+      "status": "not-required",
+      "reason": "No separate environment-dependent runtime validation was identified during this documentation pass."
+    }
+  },
+  {
+    "id": "AGENT-004",
+    "domain": "agent",
+    "name": "Assistant Settings, Task Check-Ins & Background Job Monitor",
+    "purpose": "Manages per-user assistant sessions and scheduled check-in settings, drains background job completions, and retains a legacy no-op activity logging shim.",
+    "status": "partial",
+    "frontend_entrypoints": [
+      "static/js/assistant.js"
+    ],
+    "backend_entrypoints": [
+      "routes/assistant_routes.py:setup_assistant_routes",
+      "src/assistant_log.py",
+      "src/bg_monitor.py"
+    ],
+    "routes": [
+      "/api/assistant/session",
+      "/api/assistant/settings",
+      "/api/assistant/run/{task_id}",
+      "/api/assistant/run-status/{task_id}",
+      "/api/assistant/available-timezones"
+    ],
+    "configuration": [
+      "CrewMember.timezone (IANA tz name driving check-in scheduling)",
+      "CrewMember.model",
+      "CrewMember.enabled_tools",
+      "ScheduledTask.scheduled_time / ScheduledTask.status",
+      "src/bg_monitor.py:POLL_INTERVAL_S",
+      "src/bg_monitor.py:_FOLLOWUP_MAX_ROUNDS"
+    ],
+    "persistence": [
+      "CrewMember (core/database.py, is_default_assistant singleton per owner)",
+      "Session pinned via CrewMember.session_id",
+      "ScheduledTask (per-owner check-in rows)",
+      "TaskRun (most recent run status for run-status polling)"
+    ],
+    "dependencies": [
+      "logging",
+      "asyncio"
+    ],
+    "tests": [
+      "tests/cli/test_logs_cli_resolve_nonstring.py"
+    ],
+    "documentation": [
+      "README.md"
+    ],
+    "risks": [
+      "Assistant seeding is owner-scoped: routes/assistant_routes.py documents that reaching an /api/assistant route under a synthetic owner previously seeded a duplicate CrewMember plus Morning/Midday/Evening tasks that double-fired; correctness now depends on RESERVED_USERNAMES staying complete.",
+      "Check-in next_run values are recomputed from CrewMember.timezone through compute_next_run, so a missing or stale IANA timezone shifts when check-ins fire.",
+      "Background follow-up continuation is retry-until-success: _run_followup returns False to defer and mark_followed_up() runs only after a successful agent run, so a persistently failing continuation is retried every POLL_INTERVAL_S tick without a bounded attempt count."
+    ],
+    "unknowns": [
+      "Route `/api/assistant/logs` cited in legacy docs is absent from assistant router.",
+      "Existing unit test `tests/cli/test_logs_cli_resolve_nonstring.py` tests CLI target-name resolution logic, not active assistant routes or bg_monitor execution loop."
+    ],
+    "evidence": [
+      {
+        "path": "routes/assistant_routes.py",
+        "symbol": "setup_assistant_routes",
+        "line_range": "L80-L326",
+        "explanation": "Active assistant session, settings, manual check-in, run-status and timezone-list endpoints, including the owner-scoping guards."
+      },
+      {
+        "path": "src/bg_monitor.py",
+        "symbol": "_drain_agent",
+        "line_range": "L28-L72",
+        "explanation": "Runs the agent loop headless against a session to produce the background-job follow-up turn."
+      },
+      {
+        "path": "src/bg_monitor.py",
+        "symbol": "_run_followup",
+        "line_range": "L75-L132",
+        "explanation": "Drains completed background jobs and auto-continues the owning session, deferring while a live turn is in progress."
+      },
+      {
+        "path": "src/assistant_log.py",
+        "symbol": "log_to_assistant",
+        "line_range": "L34-L48",
+        "explanation": "Legacy no-op activity logging shim retained for existing callers; documented as inactive rather than as current behaviour."
+      }
+    ],
+    "verified_at_commit": "d8a2059df8e53bc7275c45339849d14c8651e73c",
+    "evidence_maturity": "E1",
+    "runtime_validation": {
+      "required": false,
+      "status": "not-required",
+      "reason": "No separate environment-dependent runtime validation was identified during this documentation pass."
+    }
+  },
+  {
+    "id": "AGENT-005",
+    "domain": "agent",
+    "name": "Model Context Protocol (MCP) Server Integration",
+    "purpose": "Integrates external MCP servers over stdio/SSE to expand agent capabilities dynamically.",
+    "status": "verified",
+    "frontend_entrypoints": [
+      "static/js/settings.js",
+      "static/js/admin.js"
+    ],
+    "backend_entrypoints": [
+      "routes/mcp_routes.py:setup_mcp_routes",
+      "src/mcp_manager.py:McpManager",
+      "mcp_servers/"
+    ],
+    "routes": [
+      "/api/mcp/servers",
+      "/api/mcp/tools",
+      "/api/mcp/connect"
+    ],
+    "configuration": [
+      "MCP_CONFIG_PATH"
+    ],
+    "persistence": [
+      "DATA_DIR/mcp_config.json"
+    ],
+    "dependencies": [
+      "mcp",
+      "asyncio"
+    ],
+    "tests": [
+      "tests/test_mcp_param_hint_hardening.py",
+      "tests/cli/test_mcp_cli_json.py"
+    ],
+    "documentation": [
+      "README.md"
+    ],
+    "risks": [
+      "Subprocess leaks if external MCP server process fails to terminate clean."
+    ],
+    "unknowns": [],
+    "evidence": [
+      {
+        "path": "routes/mcp_routes.py",
+        "symbol": "setup_mcp_routes",
+        "line_range": "L60-L240",
+        "explanation": "Exposes management endpoints for external MCP servers."
+      },
+      {
+        "path": "src/mcp_manager.py",
+        "symbol": "McpManager",
+        "line_range": "L40-L300",
+        "explanation": "Manages MCP server subprocess lifecycles."
+      }
+    ],
+    "verified_at_commit": "d8a2059df8e53bc7275c45339849d14c8651e73c",
+    "evidence_maturity": "E0",
+    "runtime_validation": {
+      "required": false,
+      "status": "not-required",
+      "reason": "No separate environment-dependent runtime validation was identified during this documentation pass."
+    }
+  },
+  {
+    "id": "AGENT-006",
+    "domain": "agent",
+    "name": "AI Interaction Tools & Pipeline Orchestration",
+    "purpose": "Provides specialized AI interaction tools for agent self-debugging, debate, and multi-model collaboration.",
+    "status": "verified",
+    "frontend_entrypoints": [
+      "static/js/chatStream.js"
+    ],
+    "backend_entrypoints": [
+      "src/ai_interaction.py",
+      "src/action_intents.py",
+      "src/builtin_actions.py"
+    ],
+    "routes": [
+      "Implicit agent tool calls"
+    ],
+    "configuration": [
+      "MAX_PIPELINE_TURNS"
+    ],
+    "persistence": [
+      "Session transcript state"
+    ],
+    "dependencies": [
+      "asyncio"
+    ],
+    "tests": [
+      "tests/test_builtin_actions_nonstring.py",
+      "tests/test_model_interaction_registry.py"
+    ],
+    "documentation": [
+      "specs/architecture-runtime-inventory.md"
+    ],
+    "risks": [
+      "High API token consumption during extended agent debates."
+    ],
+    "unknowns": [],
+    "evidence": [
+      {
+        "path": "src/ai_interaction.py",
+        "symbol": "init_ai_interaction_tools",
+        "line_range": "L30-L140",
+        "explanation": "Registers specialized multi-agent interaction primitives."
+      },
+      {
+        "path": "src/builtin_actions.py",
+        "symbol": "execute_builtin_action",
+        "line_range": "L20-L90",
+        "explanation": "Executes pre-built action intent sequences."
+      }
+    ],
+    "verified_at_commit": "d8a2059df8e53bc7275c45339849d14c8651e73c",
+    "evidence_maturity": "E0",
+    "runtime_validation": {
+      "required": false,
+      "status": "not-required",
+      "reason": "No separate environment-dependent runtime validation was identified during this documentation pass."
+    }
+  },
+  {
+    "id": "AGENT-007",
+    "domain": "agent",
+    "name": "Subprocess & Background Job Execution Tools",
+    "purpose": "Provides sandboxed bash/shell tool execution capabilities with output streaming and background tracking.",
+    "status": "verified",
+    "frontend_entrypoints": [
+      "static/js/chatStream.js",
+      "static/js/tasks.js"
+    ],
+    "backend_entrypoints": [
+      "src/agent_tools/subprocess_tools.py",
+      "src/agent_tools/bg_job_tools.py",
+      "src/bg_jobs.py"
+    ],
+    "routes": [
+      "Implicit agent tool calls"
+    ],
+    "configuration": [
+      "ALLOW_SHELL_EXECUTION",
+      "SANDBOX_DIR"
+    ],
+    "persistence": [
+      "DATA_DIR/bg_jobs/"
+    ],
+    "dependencies": [
+      "subprocess",
+      "asyncio"
+    ],
+    "tests": [
+      "tests/test_bg_job_tools.py",
+      "tests/test_task_shell_tools.py"
+    ],
+    "documentation": [
+      "THREAT_MODEL.md"
+    ],
+    "risks": [
+      "Arbitrary shell command execution permissions if sandbox confinement fails."
+    ],
+    "unknowns": [],
+    "evidence": [
+      {
+        "path": "src/agent_tools/subprocess_tools.py",
+        "symbol": "run_command",
+        "line_range": "L25-L120",
+        "explanation": "Executes shell commands in background/foreground."
+      },
+      {
+        "path": "src/bg_jobs.py",
+        "symbol": "JobManager",
+        "line_range": "L30-L150",
+        "explanation": "Tracks async background subprocess tasks."
+      }
+    ],
+    "verified_at_commit": "d8a2059df8e53bc7275c45339849d14c8651e73c",
+    "evidence_maturity": "E0",
+    "runtime_validation": {
+      "required": false,
+      "status": "not-required",
+      "reason": "No separate environment-dependent runtime validation was identified during this documentation pass."
+    }
+  },
+  {
+    "id": "MODEL-001",
+    "domain": "model",
+    "name": "Multi-Provider LLM Model Discovery & Metadata Management",
+    "purpose": "Discovers models from OpenAI, Anthropic, Ollama, vLLM, LMStudio, OpenRouter, and Google AI Studio endpoints.",
+    "status": "verified",
+    "frontend_entrypoints": [
+      "static/js/models.js",
+      "static/js/modelPicker.js"
+    ],
+    "backend_entrypoints": [
+      "routes/model_routes.py:setup_model_routes",
+      "src/model_discovery.py:ModelDiscovery"
+    ],
+    "routes": [
+      "/api/models",
+      "/api/models/active",
+      "/api/model-endpoints"
+    ],
+    "configuration": [
+      "OPENAI_API_KEY",
+      "OLLAMA_BASE_URL",
+      "ANTHROPIC_API_KEY"
+    ],
+    "persistence": [
+      "DATA_DIR/model_endpoints.json"
+    ],
+    "dependencies": [
+      "httpx",
+      "pydantic"
+    ],
+    "tests": [
+      "tests/test_model_routes.py",
+      "tests/test_provider_classification.py"
+    ],
+    "documentation": [
+      "README.md"
+    ],
+    "risks": [
+      "Remote endpoint timeouts may slow down full discovery refresh."
+    ],
+    "unknowns": [],
+    "evidence": [
+      {
+        "path": "routes/model_routes.py",
+        "symbol": "@router.get('/api/models')",
+        "line_range": "L100-L180",
+        "explanation": "Returns unified list of available models across providers."
+      },
+      {
+        "path": "src/model_discovery.py",
+        "symbol": "ModelDiscovery.discover_all",
+        "line_range": "L45-L210",
+        "explanation": "Queries connected provider endpoints for available model IDs."
+      }
+    ],
+    "verified_at_commit": "d8a2059df8e53bc7275c45339849d14c8651e73c",
+    "evidence_maturity": "E0",
+    "runtime_validation": {
+      "required": false,
+      "status": "not-required",
+      "reason": "No separate environment-dependent runtime validation was identified during this documentation pass."
+    }
+  },
+  {
+    "id": "MODEL-002",
+    "domain": "model",
+    "name": "Model Capability & Context Limits Detection",
+    "purpose": "Detects vision, tool calling, reasoning, and context window limits for connected model endpoints.",
+    "status": "verified",
+    "frontend_entrypoints": [
+      "static/js/models.js"
+    ],
+    "backend_entrypoints": [
+      "src/model_capabilities.py",
+      "src/model_context.py",
+      "src/endpoint_resolver.py"
+    ],
+    "routes": [
+      "/api/model-endpoints/{ep_id}/probe"
+    ],
+    "configuration": [
+      "MODEL_CAPABILITY_OVERRODES"
+    ],
+    "persistence": [
+      "In-memory capabilities cache"
+    ],
+    "dependencies": [
+      "pydantic"
+    ],
+    "tests": [
+      "tests/test_endpoint_resolver_headers.py",
+      "tests/test_vision_model_detection.py"
+    ],
+    "documentation": [
+      "specs/architecture-runtime-inventory.md"
+    ],
+    "risks": [
+      "Incorrect context limit metadata for unlisted custom fine-tunes."
+    ],
+    "unknowns": [],
+    "evidence": [
+      {
+        "path": "src/model_capabilities.py",
+        "symbol": "get_model_capabilities",
+        "line_range": "L30-L120",
+        "explanation": "Maps model names to vision and tool support flags."
+      },
+      {
+        "path": "src/endpoint_resolver.py",
+        "symbol": "resolve_endpoint_headers",
+        "line_range": "L20-L80",
+        "explanation": "Resolves auth headers and target URLs for model endpoints."
+      }
+    ],
+    "verified_at_commit": "d8a2059df8e53bc7275c45339849d14c8651e73c",
+    "evidence_maturity": "E0",
+    "runtime_validation": {
+      "required": false,
+      "status": "not-required",
+      "reason": "No separate environment-dependent runtime validation was identified during this documentation pass."
+    }
+  },
+  {
+    "id": "MODEL-003",
+    "domain": "model",
+    "name": "LLM Core Provider Communication & Fallback Routing",
+    "purpose": "Manages HTTP request dispatching, authorization header injection, and fallback provider routing for LLM calls.",
+    "status": "verified",
+    "frontend_entrypoints": [
+      "static/js/chatStream.js"
+    ],
+    "backend_entrypoints": [
+      "src/llm_core.py:llm_call_async",
+      "src/llm_core.py:llm_call_async_with_fallback",
+      "src/llm_core.py:stream_llm_with_fallback"
+    ],
+    "routes": [
+      "Implicit backend calls"
+    ],
+    "configuration": [
+      "LLM_RETRY_ATTEMPTS",
+      "LLM_TIMEOUT"
+    ],
+    "persistence": [
+      "Session state"
+    ],
+    "dependencies": [
+      "httpx",
+      "asyncio"
+    ],
+    "tests": [
+      "tests/test_llm_core_concurrency.py",
+      "tests/test_llm_core_fallback.py"
+    ],
+    "documentation": [
+      "README.md"
+    ],
+    "risks": [
+      "Unexpected API changes in upstream third-party model providers."
+    ],
+    "unknowns": [],
+    "evidence": [
+      {
+        "path": "src/llm_core.py",
+        "symbol": "llm_call_async",
+        "line_range": "L1949-L2118",
+        "explanation": "Non-streaming provider request dispatcher: resolves the endpoint, injects authorization headers and executes the HTTP call."
+      },
+      {
+        "path": "src/llm_core.py",
+        "symbol": "llm_call_async_with_fallback",
+        "line_range": "L1932-L1946",
+        "explanation": "Ordered fallback wrapper that retries llm_call_async across the configured candidate endpoints."
+      },
+      {
+        "path": "src/llm_core.py",
+        "symbol": "stream_llm_with_fallback",
+        "line_range": "L2794-L2895",
+        "explanation": "Ordered fallback wrapper for the streaming path; advances to the next candidate when a provider yields an empty completion."
+      }
+    ],
+    "verified_at_commit": "d8a2059df8e53bc7275c45339849d14c8651e73c",
+    "evidence_maturity": "E0",
+    "runtime_validation": {
+      "required": true,
+      "status": "pending",
+      "reason": "Provider dispatch, header injection and fallback advancement are only observable against a reachable LLM provider endpoint; not exercised in this documentation pass."
+    }
+  },
+  {
+    "id": "MODEL-004",
+    "domain": "model",
+    "name": "Model Selection & Display Ordering Preferences",
+    "purpose": "Allows pinning, sorting, and hiding specific models in the UI selection dropdown.",
+    "status": "verified",
+    "frontend_entrypoints": [
+      "static/js/modelSort.js",
+      "static/js/modelPicker.js"
+    ],
+    "backend_entrypoints": [
+      "routes/model_routes.py:save_model_order"
+    ],
+    "routes": [
+      "/api/models/order",
+      "/api/models/order/reset"
+    ],
+    "configuration": [],
+    "persistence": [
+      "DATA_DIR/model_order.json"
+    ],
+    "dependencies": [
+      "json"
+    ],
+    "tests": [
+      "tests/test_model_defaults.py"
+    ],
+    "documentation": [
+      "README.md"
+    ],
+    "risks": [
+      "Stale model IDs in custom order lists after model endpoints are removed."
+    ],
+    "unknowns": [],
+    "evidence": [
+      {
+        "path": "routes/model_routes.py",
+        "symbol": "@router.post('/order')",
+        "line_range": "L500-L550",
+        "explanation": "Saves custom model display order preference."
+      }
+    ],
+    "verified_at_commit": "d8a2059df8e53bc7275c45339849d14c8651e73c",
+    "evidence_maturity": "E0",
+    "runtime_validation": {
+      "required": false,
+      "status": "not-required",
+      "reason": "No separate environment-dependent runtime validation was identified during this documentation pass."
+    }
+  },
+  {
+    "id": "MODEL-005",
+    "domain": "model",
+    "name": "Side-by-Side Model Comparison (A/B Testing)",
+    "purpose": "Enables dual-model side-by-side response evaluation, arena scoring, and latency comparison.",
+    "status": "verified",
+    "frontend_entrypoints": [
+      "static/js/compare/index.js",
+      "static/js/compare/panes.js"
+    ],
+    "backend_entrypoints": [
+      "routes/compare/compare_routes.py:setup_compare_routes"
+    ],
+    "routes": [
+      "/api/compare/start",
+      "/api/compare/{comp_id}/vote",
+      "/api/compare/history"
+    ],
+    "configuration": [
+      "COMPARE_ENABLED"
+    ],
+    "persistence": [
+      "DATA_DIR/compare_history.db"
+    ],
+    "dependencies": [
+      "sqlite3"
+    ],
+    "tests": [
+      "tests/test_endpoint_owner_scope_followup.py"
+    ],
+    "documentation": [
+      "docs/compare.webm"
+    ],
+    "risks": [
+      "High memory and network usage when streaming two model responses simultaneously."
+    ],
+    "unknowns": [],
+    "evidence": [
+      {
+        "path": "routes/compare/compare_routes.py",
+        "symbol": "@router.post('/start')",
+        "line_range": "L70-L150",
+        "explanation": "Starts a parallel dual-model comparison stream."
+      },
+      {
+        "path": "static/js/compare/index.js",
+        "symbol": "initCompareView",
+        "line_range": "L1-L100",
+        "explanation": "Renders side-by-side model chat panes."
+      }
+    ],
+    "verified_at_commit": "d8a2059df8e53bc7275c45339849d14c8651e73c",
+    "evidence_maturity": "E0",
+    "runtime_validation": {
+      "required": false,
+      "status": "not-required",
+      "reason": "No separate environment-dependent runtime validation was identified during this documentation pass."
+    }
+  },
+  {
+    "id": "MODEL-006",
+    "domain": "model",
+    "name": "GitHub Copilot Device Flow Authentication",
+    "purpose": "Authenticates with GitHub Copilot via OAuth device flow to use Copilot models directly.",
+    "status": "verified",
+    "frontend_entrypoints": [
+      "static/js/providerDeviceFlow.js"
+    ],
+    "backend_entrypoints": [
+      "routes/copilot_routes.py:setup_copilot_routes",
+      "routes/device_flow.py:create_device_flow_router",
+      "src/copilot.py:request_device_code",
+      "src/copilot.py:poll_access_token"
+    ],
+    "routes": [
+      "/api/copilot/device/start",
+      "/api/copilot/device/poll"
+    ],
+    "configuration": [
+      "COPILOT_CLIENT_ID"
+    ],
+    "persistence": [
+      "DATA_DIR/copilot_auth.json"
+    ],
+    "dependencies": [
+      "httpx"
+    ],
+    "tests": [
+      "tests/test_provider_device_flow_js.py"
+    ],
+    "documentation": [
+      "README.md"
+    ],
+    "risks": [
+      "Token expiration requires manual device re-authentication."
+    ],
+    "unknowns": [],
+    "evidence": [
+      {
+        "path": "routes/copilot_routes.py",
+        "symbol": "setup_copilot_routes",
+        "line_range": "L166-L173",
+        "explanation": "Builds the Copilot device-flow router at prefix /api/copilot, wiring _start_device_flow and _poll_device_flow."
+      },
+      {
+        "path": "routes/device_flow.py",
+        "symbol": "create_device_flow_router",
+        "line_range": "L135-L193",
+        "explanation": "Shared factory registering POST /device/start and POST /device/poll under the caller-supplied prefix."
+      },
+      {
+        "path": "src/copilot.py",
+        "symbol": "request_device_code",
+        "line_range": "L150-L161",
+        "explanation": "Issues the GitHub device-code request that begins the Copilot OAuth device flow."
+      },
+      {
+        "path": "src/copilot.py",
+        "symbol": "poll_access_token",
+        "line_range": "L164-L180",
+        "explanation": "Polls GitHub for the access token once the user has authorized the device code."
+      },
+      {
+        "path": "tests/test_provider_device_flow_js.py",
+        "symbol": "test_copilot_success_uses_complete_verification_uri",
+        "line_range": "L28-L65",
+        "explanation": "Inspected unit test asserting the Copilot device-flow runner surfaces the complete verification URI returned by the backend."
+      }
+    ],
+    "verified_at_commit": "d8a2059df8e53bc7275c45339849d14c8651e73c",
+    "evidence_maturity": "E2",
+    "runtime_validation": {
+      "required": true,
+      "status": "pending",
+      "reason": "Requires an interactive GitHub Copilot OAuth device-flow account."
+    }
+  },
+  {
+    "id": "MODEL-007",
+    "domain": "model",
+    "name": "ChatGPT Subscription Device Flow Authentication",
+    "purpose": "Authenticates with ChatGPT Pro/Plus subscription tokens via device login flow.",
+    "status": "verified",
+    "frontend_entrypoints": [
+      "static/js/providerDeviceFlow.js"
+    ],
+    "backend_entrypoints": [
+      "routes/chatgpt_subscription_routes.py:setup_chatgpt_subscription_routes",
+      "routes/device_flow.py:create_device_flow_router",
+      "src/chatgpt_subscription.py:request_device_code",
+      "src/chatgpt_subscription.py:poll_device_auth"
+    ],
+    "routes": [
+      "/api/chatgpt-subscription/device/start",
+      "/api/chatgpt-subscription/device/poll"
+    ],
+    "configuration": [],
+    "persistence": [
+      "DATA_DIR/chatgpt_auth.json"
+    ],
+    "dependencies": [
+      "httpx"
+    ],
+    "tests": [
+      "tests/test_provider_device_flow_js.py"
+    ],
+    "documentation": [
+      "README.md"
+    ],
+    "risks": [
+      "Changes in OpenAI auth endpoint security challenges."
+    ],
+    "unknowns": [],
+    "evidence": [
+      {
+        "path": "routes/chatgpt_subscription_routes.py",
+        "symbol": "setup_chatgpt_subscription_routes",
+        "line_range": "L163-L170",
+        "explanation": "Builds the ChatGPT subscription device-flow router at prefix /api/chatgpt-subscription."
+      },
+      {
+        "path": "routes/device_flow.py",
+        "symbol": "create_device_flow_router",
+        "line_range": "L135-L193",
+        "explanation": "Shared factory registering POST /device/start and POST /device/poll under the caller-supplied prefix."
+      },
+      {
+        "path": "src/chatgpt_subscription.py",
+        "symbol": "request_device_code",
+        "line_range": "L168-L181",
+        "explanation": "Issues the ChatGPT device-authorization request that begins the subscription OAuth device flow."
+      },
+      {
+        "path": "src/chatgpt_subscription.py",
+        "symbol": "poll_device_auth",
+        "line_range": "L184-L193",
+        "explanation": "Polls the ChatGPT device-authorization endpoint for completion using the stored device_auth_id and user_code."
+      },
+      {
+        "path": "tests/test_provider_device_flow_js.py",
+        "symbol": "test_chatgpt_success_uses_plain_verification_uri",
+        "line_range": "L68-L95",
+        "explanation": "Inspected unit test asserting the ChatGPT device-flow runner uses the plain verification URI rather than the Copilot complete-URI form."
+      }
+    ],
+    "verified_at_commit": "d8a2059df8e53bc7275c45339849d14c8651e73c",
+    "evidence_maturity": "E2",
+    "runtime_validation": {
+      "required": true,
+      "status": "pending",
+      "reason": "Requires an interactive ChatGPT subscription OAuth flow."
+    }
+  },
+  {
+    "id": "MODEL-008",
+    "domain": "model",
+    "name": "Embedding Model Lane & Vector Provider Setup",
+    "purpose": "Configures local sentence-transformers, FastEmbed, or remote OpenAI embedding model lanes.",
+    "status": "verified",
+    "frontend_entrypoints": [
+      "static/js/settings.js"
+    ],
+    "backend_entrypoints": [
+      "routes/embedding_routes.py:setup_embedding_routes",
+      "src/embeddings.py",
+      "src/embedding_lanes.py"
+    ],
+    "routes": [
+      "/api/embeddings/active",
+      "/api/embeddings/test"
+    ],
+    "configuration": [
+      "EMBEDDING_PROVIDER",
+      "EMBEDDING_MODEL"
+    ],
+    "persistence": [
+      "DATA_DIR/embeddings_config.json"
+    ],
+    "dependencies": [
+      "fastembed",
+      "sentence-transformers"
+    ],
+    "tests": [
+      "tests/test_embedding_lane_ndarray_restore.py"
+    ],
+    "documentation": [
+      "README.md"
+    ],
+    "risks": [
+      "First-time download of heavy PyTorch model weights on CPU-only machines."
+    ],
+    "unknowns": [],
+    "evidence": [
+      {
+        "path": "routes/embedding_routes.py",
+        "symbol": "setup_embedding_routes",
+        "line_range": "L30-L120",
+        "explanation": "Provides embedding provider configuration endpoints."
+      },
+      {
+        "path": "src/embeddings.py",
+        "symbol": "EmbeddingManager",
+        "line_range": "L40-L200",
+        "explanation": "Generates dense vector embeddings for RAG and memory."
+      }
+    ],
+    "verified_at_commit": "d8a2059df8e53bc7275c45339849d14c8651e73c",
+    "evidence_maturity": "E0",
+    "runtime_validation": {
+      "required": false,
+      "status": "not-required",
+      "reason": "No separate environment-dependent runtime validation was identified during this documentation pass."
+    }
+  },
+  {
+    "id": "COOKBOOK-001",
+    "domain": "cookbook",
+    "name": "Local Model Download & Recipe Lifecycle Management",
+    "purpose": "Downloads HuggingFace models, configures execution parameters, and manages local GGUF/MLX model servers.",
+    "status": "verified",
+    "frontend_entrypoints": [
+      "static/js/cookbook.js",
+      "static/js/cookbookServe.js",
+      "static/js/cookbookDownload.js"
+    ],
+    "backend_entrypoints": [
+      "routes/cookbook_routes.py:setup_cookbook_routes",
+      "src/tools/cookbook.py",
+      "src/cookbook_serve_lifecycle.py"
+    ],
+    "routes": [
+      "/api/cookbook/download",
+      "/api/cookbook/serve",
+      "/api/cookbook/status"
+    ],
+    "configuration": [
+      "COOKBOOK_MODELS_DIR"
+    ],
+    "persistence": [
+      "DATA_DIR/models/"
+    ],
+    "dependencies": [
+      "huggingface_hub",
+      "subprocess"
+    ],
+    "tests": [
+      "tests/test_cookbook_endpoint_registration.py",
+      "tests/test_cookbook_port_parsing_js.py"
+    ],
+    "documentation": [
+      "README.md"
+    ],
+    "risks": [
+      "Disk space exhaustion during multi-gigabyte GGUF weights downloads."
+    ],
+    "unknowns": [],
+    "evidence": [
+      {
+        "path": "routes/cookbook_routes.py",
+        "symbol": "setup_cookbook_routes",
+        "line_range": "L100-L300",
+        "explanation": "Exposes model downloading and process serving endpoints."
+      },
+      {
+        "path": "static/js/cookbook.js",
+        "symbol": "initCookbook",
+        "line_range": "L1-L150",
+        "explanation": "UI manager for local model library."
+      }
+    ],
+    "verified_at_commit": "d8a2059df8e53bc7275c45339849d14c8651e73c",
+    "evidence_maturity": "E0",
+    "runtime_validation": {
+      "required": false,
+      "status": "not-required",
+      "reason": "No separate environment-dependent runtime validation was identified during this documentation pass."
+    }
+  },
+  {
+    "id": "COOKBOOK-002",
+    "domain": "cookbook",
+    "name": "Hardware Model Fitting ('What Fits?') Analysis Engine",
+    "purpose": "Calculates RAM/VRAM requirements, quantized size, and context overhead to determine model compatibility.",
+    "status": "verified",
+    "frontend_entrypoints": [
+      "static/js/cookbook-hwfit.js"
+    ],
+    "backend_entrypoints": [
+      "routes/hwfit_routes.py:setup_hwfit_routes",
+      "services/hwfit/fit.py:calculate_fit"
+    ],
+    "routes": [
+      "/api/hwfit/fit",
+      "/api/hwfit/profile"
+    ],
+    "configuration": [
+      "FORCE_GPU_VENDOR"
+    ],
+    "persistence": [
+      "System hardware specs"
+    ],
+    "dependencies": [
+      "psutil",
+      "torch"
+    ],
+    "tests": [
+      "tests/test_hwfit_gemma4_12b.py",
+      "tests/test_hwfit_bandwidth_nonstring.py",
+      "tests/test_hwfit_gpu_count_nonnumeric.py"
+    ],
+    "documentation": [
+      "README.md"
+    ],
+    "risks": [
+      "Inaccurate VRAM estimation for non-standard KV-cache quantization."
+    ],
+    "unknowns": [],
+    "evidence": [
+      {
+        "path": "routes/hwfit_routes.py",
+        "symbol": "setup_hwfit_routes",
+        "line_range": "L40-L120",
+        "explanation": "Calculates hardware model compatibility."
+      },
+      {
+        "path": "services/hwfit/fit.py",
+        "symbol": "calculate_fit",
+        "line_range": "L30-L140",
+        "explanation": "Performs parameter and memory fit calculations."
+      }
+    ],
+    "verified_at_commit": "d8a2059df8e53bc7275c45339849d14c8651e73c",
+    "evidence_maturity": "E0",
+    "runtime_validation": {
+      "required": false,
+      "status": "not-required",
+      "reason": "No separate environment-dependent runtime validation was identified during this documentation pass."
+    }
+  },
+  {
+    "id": "COOKBOOK-003",
+    "domain": "cookbook",
+    "name": "HuggingFace & MLX Model Discovery Services",
+    "purpose": "Searches HuggingFace Hub and local MLX model repositories for compatible GGUF and MLX weights.",
+    "status": "verified",
+    "frontend_entrypoints": [
+      "static/js/cookbook.js"
+    ],
+    "backend_entrypoints": [
+      "routes/hwfit_routes.py:hf_search",
+      "services/hwfit/hf_discovery.py"
+    ],
+    "routes": [
+      "/api/hwfit/hf-search",
+      "/api/hwfit/mlx-models"
+    ],
+    "configuration": [
+      "HF_TOKEN"
+    ],
+    "persistence": [
+      "Cache directory"
+    ],
+    "dependencies": [
+      "huggingface_hub"
+    ],
+    "tests": [
+      "tests/test_cookbook_hf_token.py"
+    ],
+    "documentation": [
+      "README.md"
+    ],
+    "risks": [
+      "HuggingFace API rate limits when searching without an API token."
+    ],
+    "unknowns": [],
+    "evidence": [
+      {
+        "path": "services/hwfit/hf_discovery.py",
+        "symbol": "search_hf_models",
+        "line_range": "L20-L90",
+        "explanation": "Queries HuggingFace API for model tags and files."
+      }
+    ],
+    "verified_at_commit": "d8a2059df8e53bc7275c45339849d14c8651e73c",
+    "evidence_maturity": "E0",
+    "runtime_validation": {
+      "required": false,
+      "status": "not-required",
+      "reason": "No separate environment-dependent runtime validation was identified during this documentation pass."
+    }
+  },
+  {
+    "id": "COOKBOOK-004",
+    "domain": "cookbook",
+    "name": "Host Docker Access for Inference Container Runtimes",
+    "purpose": "Detects and connects to host Docker engine to launch containerized Ollama, vLLM, or SGLang runtimes.",
+    "status": "verified",
+    "frontend_entrypoints": [
+      "static/js/cookbookServe.js"
+    ],
+    "backend_entrypoints": [
+      "src/host_docker_access.py:HostDockerAccess"
+    ],
+    "routes": [
+      "Implicit local docker socket API calls"
+    ],
+    "configuration": [
+      "DOCKER_HOST"
+    ],
+    "persistence": [
+      "/var/run/docker.sock"
+    ],
+    "dependencies": [
+      "docker"
+    ],
+    "tests": [
+      "tests/test_cookbook_docker_access.py"
+    ],
+    "documentation": [
+      "docker/host-docker.yml"
+    ],
+    "risks": [
+      "Permission denied accessing docker socket on non-root setups."
+    ],
+    "unknowns": [],
+    "evidence": [
+      {
+        "path": "src/host_docker_access.py",
+        "symbol": "HostDockerAccess",
+        "line_range": "L50-L62",
+        "explanation": "Interacts with host docker daemon."
+      }
+    ],
+    "verified_at_commit": "d8a2059df8e53bc7275c45339849d14c8651e73c",
+    "evidence_maturity": "E0",
+    "runtime_validation": {
+      "required": true,
+      "status": "pending",
+      "reason": "Requires Docker access and supported physical GPU hardware."
+    }
+  },
+  {
+    "id": "RESEARCH-001",
+    "domain": "research",
+    "name": "Deep Research Execution Engine & SSE Progress Streaming",
+    "purpose": "Executes multi-step recursive deep research tasks, web page scraping, synthesis, and streams live progress.",
+    "status": "verified",
+    "frontend_entrypoints": [
+      "static/js/research/panel.js",
+      "static/js/research/jobs.js",
+      "static/js/researchSynapse.js"
+    ],
+    "backend_entrypoints": [
+      "routes/research/research_routes.py:start_research",
+      "src/deep_research.py",
+      "services/research/service.py"
+    ],
+    "routes": [
+      "/api/research/start",
+      "/api/research/stream/{session_id}",
+      "/api/research/active"
+    ],
+    "configuration": [
+      "MAX_RESEARCH_DEPTH",
+      "SEARXNG_URL"
+    ],
+    "persistence": [
+      "DATA_DIR/research/"
+    ],
+    "dependencies": [
+      "beautifulsoup4",
+      "httpx",
+      "asyncio"
+    ],
+    "tests": [
+      "tests/test_research_owner_scope_routes.py",
+      "tests/test_services_research_low_quality_sources.py"
+    ],
+    "documentation": [
+      "docs/research.webm"
+    ],
+    "risks": [
+      "High memory consumption when parsing multi-megabyte HTML target pages."
+    ],
+    "unknowns": [],
+    "evidence": [
+      {
+        "path": "routes/research/research_routes.py",
+        "symbol": "@router.post('/api/research/start')",
+        "line_range": "L492-L550",
+        "explanation": "Initiates deep research job."
+      },
+      {
+        "path": "src/deep_research.py",
+        "symbol": "DeepResearchEngine",
+        "line_range": "L40-L300",
+        "explanation": "Recursive search and summary crawler."
+      }
+    ],
+    "verified_at_commit": "d8a2059df8e53bc7275c45339849d14c8651e73c",
+    "evidence_maturity": "E0",
+    "runtime_validation": {
+      "required": false,
+      "status": "not-required",
+      "reason": "No separate environment-dependent runtime validation was identified during this documentation pass."
+    }
+  },
+  {
+    "id": "RESEARCH-002",
+    "domain": "research",
+    "name": "Research Library, Detail View & Image Controls",
+    "purpose": "Stores completed research reports, generated diagrams, reference links, and manages image visibility.",
+    "status": "verified",
+    "frontend_entrypoints": [
+      "static/js/research/panel.js"
+    ],
+    "backend_entrypoints": [
+      "routes/research/research_routes.py:get_library"
+    ],
+    "routes": [
+      "/api/research/library",
+      "/api/research/detail/{session_id}",
+      "/api/research/{session_id}/hide-image"
+    ],
+    "configuration": [],
+    "persistence": [
+      "DATA_DIR/research/library.json"
+    ],
+    "dependencies": [
+      "pydantic"
+    ],
+    "tests": [
+      "tests/cli/test_research_cli_preview.py",
+      "tests/test_research_routes_path_confinement.py"
+    ],
+    "documentation": [
+      "docs/research.webm"
+    ],
+    "risks": [
+      "Orphaned report files if storage directory is modified out-of-band."
+    ],
+    "unknowns": [],
+    "evidence": [
+      {
+        "path": "routes/research/research_routes.py",
+        "symbol": "@router.get('/api/research/library')",
+        "line_range": "L366-L415",
+        "explanation": "Returns all saved research reports."
+      }
+    ],
+    "verified_at_commit": "d8a2059df8e53bc7275c45339849d14c8651e73c",
+    "evidence_maturity": "E0",
+    "runtime_validation": {
+      "required": false,
+      "status": "not-required",
+      "reason": "No separate environment-dependent runtime validation was identified during this documentation pass."
+    }
+  },
+  {
+    "id": "RESEARCH-003",
+    "domain": "research",
+    "name": "Web Search Engine Integration (SearXNG & Multi-Provider)",
+    "purpose": "Queries SearXNG, DuckDuckGo, or Google Search instances to retrieve web search snippets.",
+    "status": "verified",
+    "frontend_entrypoints": [
+      "static/js/chat.js",
+      "static/js/search.js"
+    ],
+    "backend_entrypoints": [
+      "routes/search_routes.py:setup_search_routes",
+      "src/search/core.py",
+      "services/search/service.py"
+    ],
+    "routes": [
+      "/api/search"
+    ],
+    "configuration": [
+      "SEARXNG_URL",
+      "SEARCH_PROVIDER"
+    ],
+    "persistence": [
+      "In-memory search cache"
+    ],
+    "dependencies": [
+      "httpx"
+    ],
+    "tests": [
+      "tests/test_search_ranking.py",
+      "tests/test_searxng_image_pinned.py"
+    ],
+    "documentation": [
+      "config/searxng/settings.yml"
+    ],
+    "risks": [
+      "Search provider IP throttling or rate-limiting."
+    ],
+    "unknowns": [],
+    "evidence": [
+      {
+        "path": "routes/search_routes.py",
+        "symbol": "setup_search_routes",
+        "line_range": "L39-L100",
+        "explanation": "Defines /api/search, /api/search/config, and /api/search/query endpoints."
+      },
+      {
+        "path": "src/search/core.py",
+        "symbol": "SearchEngine",
+        "line_range": "L1-L12",
+        "explanation": "Compatibility module aliasing services.search.core."
+      },
+      {
+        "path": "tests/test_search_ranking.py",
+        "symbol": "test_news_queries_prefer_news_sources_over_sports_and_social_results",
+        "line_range": "L1-L39",
+        "explanation": "Tests search result domain ranking and scoring."
+      }
+    ],
+    "verified_at_commit": "d8a2059df8e53bc7275c45339849d14c8651e73c",
+    "evidence_maturity": "E1",
+    "runtime_validation": {
+      "required": true,
+      "status": "pending",
+      "reason": "Requires an active SearXNG instance or external search API provider."
+    }
+  },
+  {
+    "id": "RESEARCH-004",
+    "domain": "research",
+    "name": "Research Result Peeking & Topic Spinoff Generation",
+    "purpose": "Extracts preliminary research snippets and spawns child research sessions focused on specific sub-topics.",
+    "status": "verified",
+    "frontend_entrypoints": [
+      "static/js/research/panel.js"
+    ],
+    "backend_entrypoints": [
+      "routes/research/research_routes.py:peek_result",
+      "routes/research/research_routes.py:spinoff_research"
+    ],
+    "routes": [
+      "/api/research/result-peek/{session_id}",
+      "/api/research/spinoff/{session_id}"
+    ],
+    "configuration": [],
+    "persistence": [
+      "DATA_DIR/research/"
+    ],
+    "dependencies": [
+      "fastapi"
+    ],
+    "tests": [
+      "tests/test_research_routes_path_confinement.py"
+    ],
+    "documentation": [
+      "docs/research.webm"
+    ],
+    "risks": [
+      "Deep recursion tree depth when spawning multiple nested spinoffs."
+    ],
+    "unknowns": [],
+    "evidence": [
+      {
+        "path": "routes/research/research_routes.py",
+        "symbol": "@router.post('/api/research/spinoff/{session_id}')",
+        "line_range": "L635-L680",
+        "explanation": "Spawns child research session for specific query."
+      }
+    ],
+    "verified_at_commit": "d8a2059df8e53bc7275c45339849d14c8651e73c",
+    "evidence_maturity": "E0",
+    "runtime_validation": {
+      "required": false,
+      "status": "not-required",
+      "reason": "No separate environment-dependent runtime validation was identified during this documentation pass."
+    }
+  },
+  {
+    "id": "DOCUMENT-001",
+    "domain": "document",
+    "name": "Document & Canvas Artifact Management",
+    "purpose": "Renders dynamic canvas documents, handles live editing, markdown preview, and side-by-side artifact display.",
+    "status": "verified",
+    "frontend_entrypoints": [
+      "static/js/document.js",
+      "static/js/documentLibrary.js"
+    ],
+    "backend_entrypoints": [
+      "routes/document_routes.py:setup_document_routes",
+      "src/document_actions.py",
+      "src/document_processor.py"
+    ],
+    "routes": [
+      "/api/document",
+      "/api/document/{id}"
+    ],
+    "configuration": [
+      "MAX_DOCUMENT_SIZE_MB"
+    ],
+    "persistence": [
+      "DATA_DIR/documents/"
+    ],
+    "dependencies": [
+      "pydantic",
+      "fastapi"
+    ],
+    "tests": [
+      "tests/test_document_actions_nonstring.py",
+      "tests/test_document_diff_discard_on_update_js.py"
+    ],
+    "documentation": [
+      "docs/document.webm"
+    ],
+    "risks": [
+      "Concurrent edits on the same document artifact."
+    ],
+    "unknowns": [],
+    "evidence": [
+      {
+        "path": "routes/document_routes.py",
+        "symbol": "setup_document_routes",
+        "line_range": "L100-L300",
+        "explanation": "Registers document artifact CRUD routes."
+      },
+      {
+        "path": "static/js/document.js",
+        "symbol": "initDocumentView",
+        "line_range": "L1-L150",
+        "explanation": "Renders interactive canvas document panel."
+      }
+    ],
+    "verified_at_commit": "d8a2059df8e53bc7275c45339849d14c8651e73c",
+    "evidence_maturity": "E0",
+    "runtime_validation": {
+      "required": false,
+      "status": "not-required",
+      "reason": "No separate environment-dependent runtime validation was identified during this documentation pass."
+    }
+  },
+  {
+    "id": "DOCUMENT-002",
+    "domain": "document",
+    "name": "PDF Form Processing & High-Fidelity Rendering",
+    "purpose": "Extracts form fields from PDF files, fills dynamic values, and generates PDF previews.",
+    "status": "verified",
+    "frontend_entrypoints": [
+      "static/js/document.js"
+    ],
+    "backend_entrypoints": [
+      "src/pdf_runtime.py",
+      "src/pdf_forms.py",
+      "src/pdf_form_doc.py"
+    ],
+    "routes": [
+      "Implicit PDF document processing"
+    ],
+    "configuration": [],
+    "persistence": [
+      "DATA_DIR/documents/pdf/"
+    ],
+    "dependencies": [
+      "pypdf",
+      "fitz"
+    ],
+    "tests": [
+      "tests/test_document_pdf_marker.py",
+      "tests/test_security_headers_pdf_preview.py"
+    ],
+    "documentation": [
+      "docs/attachments.md"
+    ],
+    "risks": [
+      "Complex XFA PDF forms may not extract cleanly with standard pdf parsers."
+    ],
+    "unknowns": [],
+    "evidence": [
+      {
+        "path": "src/pdf_runtime.py",
+        "symbol": "load_pymupdf_for_pdf_viewer",
+        "line_range": "L9-L15",
+        "explanation": "Loads optional PyMuPDF runtime for PDF viewing."
+      },
+      {
+        "path": "src/pdf_forms.py",
+        "symbol": "extract_form_fields",
+        "line_range": "L1-L100",
+        "explanation": "Handles PDF form field extraction and filling."
+      },
+      {
+        "path": "tests/test_document_pdf_marker.py",
+        "symbol": "test_marker_removed_without_eating_following_text",
+        "line_range": "L1-L30",
+        "explanation": "Tests PDF text extraction wrapper stripping without content corruption."
+      }
+    ],
+    "verified_at_commit": "d8a2059df8e53bc7275c45339849d14c8651e73c",
+    "evidence_maturity": "E1",
+    "runtime_validation": {
+      "required": true,
+      "status": "pending",
+      "reason": "Requires optional PyMuPDF (`fitz`) or pypdf runtime dependency."
+    }
+  },
+  {
+    "id": "DOCUMENT-003",
+    "domain": "document",
+    "name": "Personal Document Indexing & RAG Retrieval",
+    "purpose": "Indexes local user documents (PDF, DOCX, TXT) into ChromaDB for semantic vector retrieval.",
+    "status": "verified",
+    "frontend_entrypoints": [
+      "static/js/rag.js"
+    ],
+    "backend_entrypoints": [
+      "routes/personal_routes.py:setup_personal_routes",
+      "src/personal_docs.py",
+      "src/rag_manager.py"
+    ],
+    "routes": [
+      "/api/personal/documents",
+      "/api/personal/search",
+      "/api/personal/index"
+    ],
+    "configuration": [
+      "CHROMADB_DIR"
+    ],
+    "persistence": [
+      "DATA_DIR/chroma/"
+    ],
+    "dependencies": [
+      "chromadb",
+      "pypdf",
+      "docx"
+    ],
+    "tests": [
+      "tests/test_personal_docs_pdf_index.py",
+      "tests/test_rag_index_hidden_dirs.py"
+    ],
+    "documentation": [
+      "README.md"
+    ],
+    "risks": [
+      "Slow vector embedding indexing step for massive multi-thousand page documents."
+    ],
+    "unknowns": [],
+    "evidence": [
+      {
+        "path": "routes/personal_routes.py",
+        "symbol": "setup_personal_routes",
+        "line_range": "L50-L160",
+        "explanation": "Personal document RAG indexing and search API endpoints."
+      },
+      {
+        "path": "src/personal_docs.py",
+        "symbol": "PersonalDocsManager",
+        "line_range": "L30-L180",
+        "explanation": "Handles file text chunking and vector storage."
+      }
+    ],
+    "verified_at_commit": "d8a2059df8e53bc7275c45339849d14c8651e73c",
+    "evidence_maturity": "E0",
+    "runtime_validation": {
+      "required": false,
+      "status": "not-required",
+      "reason": "No separate environment-dependent runtime validation was identified during this documentation pass."
+    }
+  },
+  {
+    "id": "DOCUMENT-004",
+    "domain": "document",
+    "name": "Document Conversion & Text Extraction Engine",
+    "purpose": "Converts office formats (.docx, .xlsx, .pptx) and HTML into clean Markdown text representations.",
+    "status": "verified",
+    "frontend_entrypoints": [
+      "static/js/fileHandler.js"
+    ],
+    "backend_entrypoints": [
+      "src/markitdown_runtime.py",
+      "src/office_doc.py"
+    ],
+    "routes": [
+      "Implicit file conversion calls"
+    ],
+    "configuration": [],
+    "persistence": [
+      "Temporary conversion cache"
+    ],
+    "dependencies": [
+      "markitdown",
+      "python-docx"
+    ],
+    "tests": [
+      "tests/cli/test_docs_cli_content_length.py"
+    ],
+    "documentation": [
+      "README.md"
+    ],
+    "risks": [
+      "Formatting loss when parsing legacy binary doc/xls files."
+    ],
+    "unknowns": [],
+    "evidence": [
+      {
+        "path": "src/markitdown_runtime.py",
+        "symbol": "convert_to_markdown",
+        "line_range": "L15-L80",
+        "explanation": "Converts binary office documents into structured Markdown text."
+      }
+    ],
+    "verified_at_commit": "d8a2059df8e53bc7275c45339849d14c8651e73c",
+    "evidence_maturity": "E0",
+    "runtime_validation": {
+      "required": false,
+      "status": "not-required",
+      "reason": "No separate environment-dependent runtime validation was identified during this documentation pass."
+    }
+  },
+  {
+    "id": "DOCUMENT-005",
+    "domain": "document",
+    "name": "Document Library UI Navigation",
+    "purpose": "Provides dedicated UI view for browsing, filtering, and organizing saved user documents.",
+    "status": "verified",
+    "frontend_entrypoints": [
+      "static/js/documentLibrary.js"
+    ],
+    "backend_entrypoints": [
+      "app.py:serve_library"
+    ],
+    "routes": [
+      "/library"
+    ],
+    "configuration": [],
+    "persistence": [
+      "DATA_DIR/documents/"
+    ],
+    "dependencies": [
+      "Vanilla JS"
+    ],
+    "tests": [
+      "tests/test_document_close_clears_active_route.py"
+    ],
+    "documentation": [
+      "README.md"
+    ],
+    "risks": [
+      "Large folder trees may cause initial DOM render slowdown."
+    ],
+    "unknowns": [],
+    "evidence": [
+      {
+        "path": "static/js/documentLibrary.js",
+        "symbol": "initDocumentLibrary",
+        "line_range": "L1-L100",
+        "explanation": "Renders document library navigation grid."
+      },
+      {
+        "path": "app.py",
+        "symbol": "serve_library",
+        "line_range": "L911-L914",
+        "explanation": "Serves SPA shell for /library route."
+      }
+    ],
+    "verified_at_commit": "d8a2059df8e53bc7275c45339849d14c8651e73c",
+    "evidence_maturity": "E0",
+    "runtime_validation": {
+      "required": false,
+      "status": "not-required",
+      "reason": "No separate environment-dependent runtime validation was identified during this documentation pass."
+    }
+  },
+  {
+    "id": "EMAIL-001",
+    "domain": "email",
+    "name": "Email Account Setup, IMAP/SMTP Connection & Polling",
+    "purpose": "Configures IMAP/SMTP email accounts, validates TLS certificates, and polls background inbox updates.",
+    "status": "verified",
+    "frontend_entrypoints": [
+      "static/js/emailInbox.js"
+    ],
+    "backend_entrypoints": [
+      "routes/email_routes.py:setup_email_routes",
+      "routes/email_pollers.py"
+    ],
+    "routes": [
+      "/api/email/accounts",
+      "/api/email/poll"
+    ],
+    "configuration": [
+      "EMAIL_POLL_INTERVAL"
+    ],
+    "persistence": [
+      "DATA_DIR/email_accounts.json"
+    ],
+    "dependencies": [
+      "imaplib",
+      "smtplib"
+    ],
+    "tests": [
+      "tests/test_service_health_email.py",
+      "tests/test_active_email_reply_guard.py"
+    ],
+    "documentation": [
+      "docs/email-outlook.md"
+    ],
+    "risks": [
+      "Account lockouts if bad credentials are repeatedly polled."
+    ],
+    "unknowns": [],
+    "evidence": [
+      {
+        "path": "routes/email_routes.py",
+        "symbol": "setup_email_routes",
+        "line_range": "L1453-L1500",
+        "explanation": "Sets up email account management and synchronization routes."
+      },
+      {
+        "path": "routes/email_pollers.py",
+        "symbol": "_start_poller",
+        "line_range": "L1-L100",
+        "explanation": "Background poller for email inbox synchronization."
+      },
+      {
+        "path": "tests/test_service_health_email.py",
+        "symbol": "test_email_ok_all_connect",
+        "line_range": "L1-L80",
+        "explanation": "Tests IMAP connection health probing and status reporting."
+      }
+    ],
+    "verified_at_commit": "d8a2059df8e53bc7275c45339849d14c8651e73c",
+    "evidence_maturity": "E1",
+    "runtime_validation": {
+      "required": true,
+      "status": "pending",
+      "reason": "Requires a controlled live IMAP account and network access."
+    }
+  },
+  {
+    "id": "EMAIL-002",
+    "domain": "email",
+    "name": "Email Searching, Threading & Message Operations",
+    "purpose": "Parses email headers, folds signatures, groups messages into threads, and executes full-text email search.",
+    "status": "verified",
+    "frontend_entrypoints": [
+      "static/js/emailLibrary.js",
+      "static/js/emailLibrary/state.js"
+    ],
+    "backend_entrypoints": [
+      "routes/email_routes.py:search_email",
+      "src/email_thread_parser.py"
+    ],
+    "routes": [
+      "/api/email/search",
+      "/api/email/threads",
+      "/api/email/messages"
+    ],
+    "configuration": [],
+    "persistence": [
+      "DATA_DIR/email_cache.db"
+    ],
+    "dependencies": [
+      "sqlite3",
+      "email"
+    ],
+    "tests": [
+      "tests/test_reply_recipients_js.py",
+      "tests/test_signature_fold_js.py"
+    ],
+    "documentation": [
+      "docs/email-outlook.md"
+    ],
+    "risks": [
+      "Malformed MIME email structures failing HTML sanitization."
+    ],
+    "unknowns": [],
+    "evidence": [
+      {
+        "path": "routes/email_routes.py",
+        "symbol": "@router.get('/search')",
+        "line_range": "L250-L320",
+        "explanation": "Executes search across cached email headers and text."
+      },
+      {
+        "path": "src/email_thread_parser.py",
+        "symbol": "parse_email_thread",
+        "line_range": "L20-L100",
+        "explanation": "Builds conversation tree from Message-ID and In-Reply-To headers."
+      }
+    ],
+    "verified_at_commit": "d8a2059df8e53bc7275c45339849d14c8651e73c",
+    "evidence_maturity": "E0",
+    "runtime_validation": {
+      "required": false,
+      "status": "not-required",
+      "reason": "No separate environment-dependent runtime validation was identified during this documentation pass."
+    }
+  },
+  {
+    "id": "EMAIL-003",
+    "domain": "email",
+    "name": "Email Composition, Draft Management & Sending",
+    "purpose": "Creates, saves, and dispatches HTML/plaintext email messages via SMTP.",
+    "status": "verified",
+    "frontend_entrypoints": [
+      "static/js/emailShared.js"
+    ],
+    "backend_entrypoints": [
+      "routes/email_routes.py:send_email"
+    ],
+    "routes": [
+      "/api/email/draft",
+      "/api/email/send"
+    ],
+    "configuration": [],
+    "persistence": [
+      "DATA_DIR/email_drafts.json"
+    ],
+    "dependencies": [
+      "smtplib"
+    ],
+    "tests": [
+      "tests/test_schedule_email_offset_normalization.py"
+    ],
+    "documentation": [
+      "docs/email-outlook.md"
+    ],
+    "risks": [
+      "SMTP connection drop mid-send causing unsent mail state."
+    ],
+    "unknowns": [],
+    "evidence": [
+      {
+        "path": "routes/email_routes.py",
+        "symbol": "@router.post('/send')",
+        "line_range": "L450-L520",
+        "explanation": "Sends email message via user SMTP credentials."
+      }
+    ],
+    "verified_at_commit": "d8a2059df8e53bc7275c45339849d14c8651e73c",
+    "evidence_maturity": "E0",
+    "runtime_validation": {
+      "required": true,
+      "status": "pending",
+      "reason": "Requires a controlled live SMTP account and network access."
+    }
+  },
+  {
+    "id": "EMAIL-004",
+    "domain": "email",
+    "name": "Email MCP Server & Codex Integration Bridge",
+    "purpose": "Exposes constrained email reading and draft capabilities to external Codex / MCP agents with scope checks.",
+    "status": "verified",
+    "frontend_entrypoints": [
+      "integrations/codex/scripts/odysseus_api.py"
+    ],
+    "backend_entrypoints": [
+      "mcp_servers/email_server.py",
+      "routes/codex_routes.py:setup_codex_routes"
+    ],
+    "routes": [
+      "/api/codex/email/search",
+      "/api/codex/email/send"
+    ],
+    "configuration": [
+      "CODEX_API_KEY"
+    ],
+    "persistence": [
+      "API token scopes"
+    ],
+    "dependencies": [
+      "mcp",
+      "fastapi"
+    ],
+    "tests": [
+      "tests/cli/test_mail_cli_recipients.py"
+    ],
+    "documentation": [
+      "integrations/codex/README.md"
+    ],
+    "risks": [
+      "Unauthorized mail sending if token scopes are improperly scoped."
+    ],
+    "unknowns": [],
+    "evidence": [
+      {
+        "path": "mcp_servers/email_server.py",
+        "symbol": "EmailMcpServer",
+        "line_range": "L20-L120",
+        "explanation": "MCP server exposing email tools over stdio/SSE."
+      },
+      {
+        "path": "routes/codex_routes.py",
+        "symbol": "setup_codex_routes",
+        "line_range": "L30-L110",
+        "explanation": "Bridge endpoints for external Codex plugin integration."
+      }
+    ],
+    "verified_at_commit": "d8a2059df8e53bc7275c45339849d14c8651e73c",
+    "evidence_maturity": "E0",
+    "runtime_validation": {
+      "required": false,
+      "status": "not-required",
+      "reason": "No separate environment-dependent runtime validation was identified during this documentation pass."
+    }
+  },
+  {
+    "id": "CALENDAR-001",
+    "domain": "calendar",
+    "name": "CalDAV Calendar Synchronization & Account Setup",
+    "purpose": "Connects to remote CalDAV servers (Apple iCloud, Nextcloud, Google) to sync calendar event feeds.",
+    "status": "verified",
+    "frontend_entrypoints": [
+      "static/js/calendar.js"
+    ],
+    "backend_entrypoints": [
+      "routes/calendar_routes.py:setup_calendar_routes",
+      "src/caldav_sync.py:CalDavSync"
+    ],
+    "routes": [
+      "/api/calendar/config",
+      "/api/calendar/sync"
+    ],
+    "configuration": [
+      "CALDAV_URL",
+      "CALDAV_USERNAME"
+    ],
+    "persistence": [
+      "DATA_DIR/calendar_config.json"
+    ],
+    "dependencies": [
+      "caldav",
+      "vobject"
+    ],
+    "tests": [
+      "tests/test_caldav_url_hardening.py"
+    ],
+    "documentation": [
+      "README.md"
+    ],
+    "risks": [
+      "Invalid SSL certificates on self-hosted CalDAV servers."
+    ],
+    "unknowns": [],
+    "evidence": [
+      {
+        "path": "routes/calendar_routes.py",
+        "symbol": "setup_calendar_routes",
+        "line_range": "L50-L180",
+        "explanation": "Exposes CalDAV setup and manual sync trigger routes."
+      },
+      {
+        "path": "src/caldav_sync.py",
+        "symbol": "CalDavSync",
+        "line_range": "L30-L160",
+        "explanation": "Fetches and parses remote iCalendar VEVENT objects."
+      }
+    ],
+    "verified_at_commit": "d8a2059df8e53bc7275c45339849d14c8651e73c",
+    "evidence_maturity": "E0",
+    "runtime_validation": {
+      "required": true,
+      "status": "pending",
+      "reason": "Requires a controlled external CalDAV server."
+    }
+  },
+  {
+    "id": "CALENDAR-002",
+    "domain": "calendar",
+    "name": "Calendar Event Operations & iCalendar Parsing",
+    "purpose": "Creates, updates, deletes, and displays calendar events with timezone conversion and reminder notifications.",
+    "status": "verified",
+    "frontend_entrypoints": [
+      "static/js/calendar/reminders.js",
+      "static/js/calendar/utils.js"
+    ],
+    "backend_entrypoints": [
+      "routes/calendar_routes.py:create_event",
+      "src/caldav_writeback.py",
+      "src/tools/calendar.py"
+    ],
+    "routes": [
+      "/api/calendar/events",
+      "/api/calendar/events/{event_id}"
+    ],
+    "configuration": [
+      "USER_TIMEZONE"
+    ],
+    "persistence": [
+      "DATA_DIR/calendar_events.db"
+    ],
+    "dependencies": [
+      "sqlite3",
+      "icalendar"
+    ],
+    "tests": [
+      "tests/test_calendar_parse_dt_time_first.py",
+      "tests/test_calendar_update_event_tz.py"
+    ],
+    "documentation": [
+      "README.md"
+    ],
+    "risks": [
+      "Recurring RRULE event expansion calculation bugs across leap years."
+    ],
+    "unknowns": [],
+    "evidence": [
+      {
+        "path": "routes/calendar_routes.py",
+        "symbol": "@router.get('/events')",
+        "line_range": "L220-L310",
+        "explanation": "Fetches calendar events for requested date window."
+      },
+      {
+        "path": "src/tools/calendar.py",
+        "symbol": "CalendarTool",
+        "line_range": "L25-L120",
+        "explanation": "Agent tool for creating and modifying calendar entries."
+      }
+    ],
+    "verified_at_commit": "d8a2059df8e53bc7275c45339849d14c8651e73c",
+    "evidence_maturity": "E0",
+    "runtime_validation": {
+      "required": false,
+      "status": "not-required",
+      "reason": "No separate environment-dependent runtime validation was identified during this documentation pass."
+    }
+  },
+  {
+    "id": "MEDIA-001",
+    "domain": "media",
+    "name": "Gallery Image Library & Album Operations",
+    "purpose": "Organizes images into custom albums, provides grid browsing, tagging, and album metadata management.",
+    "status": "verified",
+    "frontend_entrypoints": [
+      "static/js/gallery.js"
+    ],
+    "backend_entrypoints": [
+      "routes/gallery/gallery_routes.py:setup_gallery_routes"
+    ],
+    "routes": [
+      "/api/gallery/library",
+      "/api/gallery/albums",
+      "/api/gallery/upload"
+    ],
+    "configuration": [
+      "GALLERY_STORAGE_DIR"
+    ],
+    "persistence": [
+      "DATA_DIR/gallery/"
+    ],
+    "dependencies": [
+      "pillow",
+      "sqlite3"
+    ],
+    "tests": [
+      "tests/test_gallery_image_endpoint_owner_scope.py",
+      "tests/test_gallery_owner_filter_single_user.py"
+    ],
+    "documentation": [
+      "docs/gallery.webm"
+    ],
+    "risks": [
+      "Thumbnail generation overhead for high-resolution RAW camera images."
+    ],
+    "unknowns": [],
+    "evidence": [
+      {
+        "path": "routes/gallery/gallery_routes.py",
+        "symbol": "@router.get('/api/gallery/library')",
+        "line_range": "L657-L720",
+        "explanation": "Fetches image library list with tag filters."
+      },
+      {
+        "path": "static/js/gallery.js",
+        "symbol": "initGallery",
+        "line_range": "L1-L180",
+        "explanation": "Main gallery grid renderer and uploader."
+      }
+    ],
+    "verified_at_commit": "d8a2059df8e53bc7275c45339849d14c8651e73c",
+    "evidence_maturity": "E0",
+    "runtime_validation": {
+      "required": false,
+      "status": "not-required",
+      "reason": "No separate environment-dependent runtime validation was identified during this documentation pass."
+    }
+  },
+  {
+    "id": "MEDIA-002",
+    "domain": "media",
+    "name": "Image Processing, AI Upscaling & Style Transfer",
+    "purpose": "Executes local image enhancement, background removal, face sharpening, and AI upscaling operations.",
+    "status": "verified",
+    "frontend_entrypoints": [
+      "static/js/galleryEditor.js",
+      "static/js/editor/ai-tool-runner.js"
+    ],
+    "backend_entrypoints": [
+      "routes/gallery/gallery_routes.py:ai_upscale",
+      "routes/gallery/gallery_routes.py:remove_bg"
+    ],
+    "routes": [
+      "/api/gallery/ai-upscale",
+      "/api/gallery/style-transfer",
+      "/api/image/inpaint",
+      "/api/image/remove-bg"
+    ],
+    "configuration": [
+      "REALESRGAN_MODEL_PATH"
+    ],
+    "persistence": [
+      "DATA_DIR/gallery/processed/"
+    ],
+    "dependencies": [
+      "onnxruntime",
+      "opencv-python"
+    ],
+    "tests": [
+      "tests/test_sanitize_multimodal_merge.py"
+    ],
+    "documentation": [
+      "docs/gallery.webm"
+    ],
+    "risks": [
+      "High GPU memory allocation when upscaling 4K images."
+    ],
+    "unknowns": [],
+    "evidence": [
+      {
+        "path": "routes/gallery/gallery_routes.py",
+        "symbol": "@router.post('/api/gallery/ai-upscale')",
+        "line_range": "L544-L580",
+        "explanation": "Runs RealESRGAN image upscaling."
+      },
+      {
+        "path": "routes/gallery/gallery_routes.py",
+        "symbol": "@router.post('/api/image/remove-bg')",
+        "line_range": "L1950-L2010",
+        "explanation": "Executes background removal pass."
+      }
+    ],
+    "verified_at_commit": "d8a2059df8e53bc7275c45339849d14c8651e73c",
+    "evidence_maturity": "E0",
+    "runtime_validation": {
+      "required": false,
+      "status": "not-required",
+      "reason": "No separate environment-dependent runtime validation was identified during this documentation pass."
+    }
+  },
+  {
+    "id": "MEDIA-003",
+    "domain": "media",
+    "name": "Interactive Image Canvas Editor & Persisted Drafts",
+    "purpose": "Provides full multi-layer raster canvas editor, brush tools, transforms, masks, and draft project persistence.",
+    "status": "verified",
+    "frontend_entrypoints": [
+      "static/js/galleryEditor.js",
+      "static/js/editor/history-panel.js"
+    ],
+    "backend_entrypoints": [
+      "routes/editor_draft_routes.py:setup_editor_draft_routes"
+    ],
+    "routes": [
+      "/api/editor/drafts",
+      "/api/editor/drafts/{draft_id}"
+    ],
+    "configuration": [
+      "MAX_DRAFT_PROJECTS"
+    ],
+    "persistence": [
+      "DATA_DIR/editor_drafts/"
+    ],
+    "dependencies": [
+      "HTML5 Canvas API",
+      "pydantic"
+    ],
+    "tests": [
+      "tests/test_canvas_coords_empty_touches_js.py",
+      "tests/test_snap_other_layers_nonarray_js.py"
+    ],
+    "documentation": [
+      "docs/gallery.webm"
+    ],
+    "risks": [
+      "Browser memory leak if multi-gigabyte layer undo buffers are kept indefinitely."
+    ],
+    "unknowns": [],
+    "evidence": [
+      {
+        "path": "routes/editor_draft_routes.py",
+        "symbol": "setup_editor_draft_routes",
+        "line_range": "L30-L110",
+        "explanation": "API routes for saving and loading canvas project drafts."
+      },
+      {
+        "path": "static/js/editor/history-panel.js",
+        "symbol": "HistoryManager",
+        "line_range": "L1-L90",
+        "explanation": "Canvas undo/redo stack manager."
+      }
+    ],
+    "verified_at_commit": "d8a2059df8e53bc7275c45339849d14c8651e73c",
+    "evidence_maturity": "E0",
+    "runtime_validation": {
+      "required": false,
+      "status": "not-required",
+      "reason": "No separate environment-dependent runtime validation was identified during this documentation pass."
+    }
+  },
+  {
+    "id": "MEDIA-004",
+    "domain": "media",
+    "name": "Text-to-Speech (TTS) Synthesis Service",
+    "purpose": "Synthesizes spoken audio from text using local Kokoro, EdgeTTS, or OpenAI TTS engines.",
+    "status": "verified",
+    "frontend_entrypoints": [
+      "static/js/tts-ai.js"
+    ],
+    "backend_entrypoints": [
+      "routes/tts_routes.py:setup_tts_routes",
+      "services/tts/tts_service.py:TTSService"
+    ],
+    "routes": [
+      "/api/tts/synthesize",
+      "/api/tts/stats"
+    ],
+    "configuration": [
+      "TTS_PROVIDER",
+      "TTS_VOICE"
+    ],
+    "persistence": [
+      "DATA_DIR/tts_cache/"
+    ],
+    "dependencies": [
+      "soundfile",
+      "edge-tts"
+    ],
+    "tests": [
+      "tests/test_tts_available_nonstring_provider.py",
+      "tests/test_tts_cache_stats.py"
+    ],
+    "documentation": [
+      "README.md"
+    ],
+    "risks": [
+      "Audio synthesis latency on CPU-only hardware setups."
+    ],
+    "unknowns": [],
+    "evidence": [
+      {
+        "path": "routes/tts_routes.py",
+        "symbol": "@router.post('/synthesize')",
+        "line_range": "L30-L75",
+        "explanation": "Synthesizes TTS audio clip."
+      },
+      {
+        "path": "services/tts/tts_service.py",
+        "symbol": "TTSService",
+        "line_range": "L25-L140",
+        "explanation": "Provider abstraction layer for audio speech generation."
+      }
+    ],
+    "verified_at_commit": "d8a2059df8e53bc7275c45339849d14c8651e73c",
+    "evidence_maturity": "E0",
+    "runtime_validation": {
+      "required": false,
+      "status": "not-required",
+      "reason": "No separate environment-dependent runtime validation was identified during this documentation pass."
+    }
+  },
+  {
+    "id": "MEDIA-005",
+    "domain": "media",
+    "name": "Speech-to-Text (STT) Audio Transcription Service",
+    "purpose": "Transcribes user audio recordings into text using faster-whisper or local speech models.",
+    "status": "verified",
+    "frontend_entrypoints": [
+      "static/js/voiceRecorder.js"
+    ],
+    "backend_entrypoints": [
+      "routes/stt_routes.py:setup_stt_routes",
+      "services/stt/stt_service.py:STTService"
+    ],
+    "routes": [
+      "/api/stt/transcribe",
+      "/api/stt/stats"
+    ],
+    "configuration": [
+      "STT_PROVIDER",
+      "WHISPER_MODEL_SIZE"
+    ],
+    "persistence": [
+      "Temporary audio buffer"
+    ],
+    "dependencies": [
+      "faster-whisper",
+      "ffmpeg-python"
+    ],
+    "tests": [
+      "tests/test_stt_leak.py",
+      "tests/test_speech_service_toggles.py"
+    ],
+    "documentation": [
+      "README.md"
+    ],
+    "risks": [
+      "Missing ffmpeg system dependency prevents audio format decoding."
+    ],
+    "unknowns": [],
+    "evidence": [
+      {
+        "path": "routes/stt_routes.py",
+        "symbol": "@router.post('/transcribe')",
+        "line_range": "L25-L55",
+        "explanation": "Accepts multipart audio file and returns transcription text."
+      },
+      {
+        "path": "services/stt/stt_service.py",
+        "symbol": "STTService",
+        "line_range": "L20-L110",
+        "explanation": "Whisper audio transcription engine wrapper."
+      }
+    ],
+    "verified_at_commit": "d8a2059df8e53bc7275c45339849d14c8651e73c",
+    "evidence_maturity": "E0",
+    "runtime_validation": {
+      "required": false,
+      "status": "not-required",
+      "reason": "No separate environment-dependent runtime validation was identified during this documentation pass."
+    }
+  },
+  {
+    "id": "MEDIA-006",
+    "domain": "media",
+    "name": "Digital Signature Stamp Storage & Placement",
+    "purpose": "Stores transparent PNG user signatures and stamps for placement onto PDF forms and documents.",
+    "status": "verified",
+    "frontend_entrypoints": [
+      "static/js/signature.js"
+    ],
+    "backend_entrypoints": [
+      "routes/signature_routes.py:setup_signature_routes"
+    ],
+    "routes": [
+      "/api/signatures",
+      "/api/signatures/{sig_id}"
+    ],
+    "configuration": [],
+    "persistence": [
+      "DATA_DIR/signatures/"
+    ],
+    "dependencies": [
+      "pillow"
+    ],
+    "tests": [
+      "tests/test_signature_route_hardening.py",
+      "tests/test_signature_settings_dom_xss.py"
+    ],
+    "documentation": [
+      "README.md"
+    ],
+    "risks": [
+      "Cross-site scripting if signature image titles contain unescaped user input."
+    ],
+    "unknowns": [],
+    "evidence": [
+      {
+        "path": "routes/signature_routes.py",
+        "symbol": "setup_signature_routes",
+        "line_range": "L30-L120",
+        "explanation": "CRUD endpoints for managing user signature PNG stamps."
+      }
+    ],
+    "verified_at_commit": "d8a2059df8e53bc7275c45339849d14c8651e73c",
+    "evidence_maturity": "E0",
+    "runtime_validation": {
+      "required": false,
+      "status": "not-required",
+      "reason": "No separate environment-dependent runtime validation was identified during this documentation pass."
+    }
+  },
+  {
+    "id": "MEDIA-007",
+    "domain": "media",
+    "name": "Generated Image Artifact Route & MCP Integration",
+    "purpose": "Serves generated AI artwork artifacts and integrates with image generation MCP server.",
+    "status": "verified",
+    "frontend_entrypoints": [
+      "static/js/chat.js"
+    ],
+    "backend_entrypoints": [
+      "app.py:serve_generated_image",
+      "src/generated_images.py",
+      "mcp_servers/image_gen_server.py"
+    ],
+    "routes": [
+      "/api/generated-image/{filename}"
+    ],
+    "configuration": [],
+    "persistence": [
+      "DATA_DIR/generated_images/"
+    ],
+    "dependencies": [
+      "pillow",
+      "mcp"
+    ],
+    "tests": [
+      "tests/test_image_models_nondict_system.py"
+    ],
+    "documentation": [
+      "README.md"
+    ],
+    "risks": [
+      "Path traversal vulnerability if filename parameter is un-sanitized."
+    ],
+    "unknowns": [],
+    "evidence": [
+      {
+        "path": "app.py",
+        "symbol": "serve_generated_image",
+        "line_range": "L499-L520",
+        "explanation": "Serves generated image artifacts with cache headers."
+      },
+      {
+        "path": "src/generated_images.py",
+        "symbol": "resolve_generated_image_path",
+        "line_range": "L20-L32",
+        "explanation": "Confines requested image path within artifacts directory."
+      }
+    ],
+    "verified_at_commit": "d8a2059df8e53bc7275c45339849d14c8651e73c",
+    "evidence_maturity": "E0",
+    "runtime_validation": {
+      "required": false,
+      "status": "not-required",
+      "reason": "No separate environment-dependent runtime validation was identified during this documentation pass."
+    }
+  },
+  {
+    "id": "MEDIA-008",
+    "domain": "media",
+    "name": "Native MLX Image Bridge (macOS Apple Silicon)",
+    "purpose": "Native Apple Swift bridge for hardware-accelerated diffusion and MLX image colorization on macOS.",
+    "status": "experimental",
+    "frontend_entrypoints": [
+      "static/js/editor/ai-tools-misc.js"
+    ],
+    "backend_entrypoints": [
+      "swift/odysseus-mlx-image-bridge/Package.swift",
+      "scripts/mlx_image_server.py",
+      "scripts/diffusion_server.py"
+    ],
+    "routes": [
+      "/api/image/mlx-colorize"
+    ],
+    "configuration": [
+      "ENABLE_MLX_ACCELERATION"
+    ],
+    "persistence": [
+      "Build artifact binary"
+    ],
+    "dependencies": [
+      "Swift",
+      "MLX Framework"
+    ],
+    "tests": [
+      "tests/helpers/import_state.py"
+    ],
+    "documentation": [
+      "swift/odysseus-mlx-image-bridge/Package.swift"
+    ],
+    "risks": [
+      "Requires macOS host with Apple Silicon M-series chip and compiled Swift binary."
+    ],
+    "unknowns": [
+      "Binary build requires Xcode command line tools build step (`build-macos-app.sh`)."
+    ],
+    "evidence": [
+      {
+        "path": "swift/odysseus-mlx-image-bridge/Package.swift",
+        "symbol": "Package",
+        "line_range": "L1-L30",
+        "explanation": "Swift package manifest for native MLX image bridge."
+      },
+      {
+        "path": "scripts/mlx_image_server.py",
+        "symbol": "main",
+        "line_range": "L20-L90",
+        "explanation": "Python daemon wrapping native Swift MLX binary."
+      }
+    ],
+    "verified_at_commit": "d8a2059df8e53bc7275c45339849d14c8651e73c",
+    "evidence_maturity": "E0",
+    "runtime_validation": {
+      "required": true,
+      "status": "pending",
+      "reason": "Requires Apple Silicon, macOS tooling, and the compiled MLX bridge."
+    }
+  },
+  {
+    "id": "SECURITY-001",
+    "domain": "security",
+    "name": "Authentication, Session Cookies & User Management",
+    "purpose": "Handles bcrypt password hashing, session cookie issuance, authentication enforcement, and user administration.",
+    "status": "verified",
+    "frontend_entrypoints": [
+      "static/login.html",
+      "static/js/admin.js"
+    ],
+    "backend_entrypoints": [
+      "routes/auth_routes.py:setup_auth_routes",
+      "core/auth.py:AuthManager"
+    ],
+    "routes": [
+      "/api/auth/login",
+      "/api/auth/me",
+      "/api/auth/users",
+      "/api/auth/logout"
+    ],
+    "configuration": [
+      "AUTH_ENABLED",
+      "SESSION_COOKIE_NAME"
+    ],
+    "persistence": [
+      "DATA_DIR/auth.db"
+    ],
+    "dependencies": [
+      "bcrypt",
+      "itsdangerous"
+    ],
+    "tests": [
+      "tests/test_rename_user_owner_sync.py",
+      "tests/test_reserved_username_admin_escalation.py"
+    ],
+    "documentation": [
+      "THREAT_MODEL.md",
+      "SECURITY.md"
+    ],
+    "risks": [
+      "Cookie session hijack if deployed over unencrypted HTTP without HTTPS cookie flags."
+    ],
+    "unknowns": [],
+    "evidence": [
+      {
+        "path": "routes/auth_routes.py",
+        "symbol": "@router.post('/login')",
+        "line_range": "L100-L180",
+        "explanation": "Authenticates credentials and sets session cookie."
+      },
+      {
+        "path": "core/auth.py",
+        "symbol": "AuthManager",
+        "line_range": "L40-L260",
+        "explanation": "Handles user creation, password verification, and session tokens."
+      }
+    ],
+    "verified_at_commit": "d8a2059df8e53bc7275c45339849d14c8651e73c",
+    "evidence_maturity": "E0",
+    "runtime_validation": {
+      "required": false,
+      "status": "not-required",
+      "reason": "No separate environment-dependent runtime validation was identified during this documentation pass."
+    }
+  },
+  {
+    "id": "SECURITY-002",
+    "domain": "security",
+    "name": "System Vault Encrypted Secret Storage",
+    "purpose": "Encrypts API keys, passphrases, and third-party secrets on disk using AES-GCM / PBKDF2 key derivation.",
+    "status": "verified",
+    "frontend_entrypoints": [
+      "static/js/settings.js"
+    ],
+    "backend_entrypoints": [
+      "routes/vault_routes.py:setup_vault_routes",
+      "src/secret_storage.py:SecretVault",
+      "src/tools/vault.py"
+    ],
+    "routes": [
+      "/api/vault/config",
+      "/api/vault/unlock",
+      "/api/vault/lock"
+    ],
+    "configuration": [
+      "VAULT_SALT"
+    ],
+    "persistence": [
+      "DATA_DIR/vault.enc"
+    ],
+    "dependencies": [
+      "cryptography"
+    ],
+    "tests": [
+      "tests/test_vault_password_not_in_argv.py"
+    ],
+    "documentation": [
+      "THREAT_MODEL.md"
+    ],
+    "risks": [
+      "Loss of vault master passphrase renders all encrypted secrets permanently unrecoverable."
+    ],
+    "unknowns": [],
+    "evidence": [
+      {
+        "path": "routes/vault_routes.py",
+        "symbol": "setup_vault_routes",
+        "line_range": "L126-L229",
+        "explanation": "Admin routes for vault configuration, login, unlock, lock, and logout."
+      },
+      {
+        "path": "src/secret_storage.py",
+        "symbol": "SecretStorage",
+        "line_range": "L57-L87",
+        "explanation": "Fernet symmetric key DB secret encryption."
+      },
+      {
+        "path": "tests/test_vault_password_not_in_argv.py",
+        "symbol": "test_bw_password_not_in_argv",
+        "line_range": "L1-L117",
+        "explanation": "Verifies master password is fed via stdin and never appears in process argv."
+      }
+    ],
+    "verified_at_commit": "d8a2059df8e53bc7275c45339849d14c8651e73c",
+    "evidence_maturity": "E1",
+    "runtime_validation": {
+      "required": true,
+      "status": "pending",
+      "reason": "Requires installed Bitwarden CLI (`bw`) executable."
+    }
+  },
+  {
+    "id": "SECURITY-003",
+    "domain": "security",
+    "name": "API Token Management & Scope Access Control",
+    "purpose": "Generates scoped API bearer tokens (read/write/admin) for external tool and script authentication.",
+    "status": "verified",
+    "frontend_entrypoints": [
+      "static/js/settings.js"
+    ],
+    "backend_entrypoints": [
+      "routes/api_token_routes.py:setup_api_token_routes",
+      "core/database.py:ApiToken"
+    ],
+    "routes": [
+      "/api/tokens",
+      "/api/tokens/{token_id}"
+    ],
+    "configuration": [],
+    "persistence": [
+      "DATA_DIR/odysseus.db (api_tokens table)"
+    ],
+    "dependencies": [
+      "sqlalchemy",
+      "secrets"
+    ],
+    "tests": [
+      "tests/test_api_key_file_permissions.py"
+    ],
+    "documentation": [
+      "SECURITY.md"
+    ],
+    "risks": [
+      "Leaked API bearer tokens with excessive permission scopes."
+    ],
+    "unknowns": [],
+    "evidence": [
+      {
+        "path": "routes/api_token_routes.py",
+        "symbol": "setup_api_token_routes",
+        "line_range": "L30-L150",
+        "explanation": "Exposes API token creation, scope assignment, and revocation."
+      },
+      {
+        "path": "core/database.py",
+        "symbol": "ApiToken",
+        "line_range": "L50-L90",
+        "explanation": "SQLAlchemy ORM schema for API tokens and permissions."
+      }
+    ],
+    "verified_at_commit": "d8a2059df8e53bc7275c45339849d14c8651e73c",
+    "evidence_maturity": "E0",
+    "runtime_validation": {
+      "required": false,
+      "status": "not-required",
+      "reason": "No separate environment-dependent runtime validation was identified during this documentation pass."
+    }
+  },
+  {
+    "id": "SECURITY-004",
+    "domain": "security",
+    "name": "Prompt Security & Injection Defense Engine",
+    "purpose": "Scans system prompts and external inputs for prompt injection attempts, jailbreaks, and sensitive data leaks.",
+    "status": "verified",
+    "frontend_entrypoints": [
+      "static/js/chat.js"
+    ],
+    "backend_entrypoints": [
+      "src/prompt_security.py:sanitize_prompt",
+      "src/tool_security.py:validate_tool_input"
+    ],
+    "routes": [
+      "Implicit security inspection"
+    ],
+    "configuration": [
+      "ENABLE_PROMPT_SANITY_CHECK"
+    ],
+    "persistence": [],
+    "dependencies": [
+      "re"
+    ],
+    "tests": [
+      "tests/test_skill_index_prompt_injection.py",
+      "tests/test_tool_output_prompt_injection.py"
+    ],
+    "documentation": [
+      "THREAT_MODEL.md"
+    ],
+    "risks": [
+      "False positives blocking legitimate complex coding or security prompts."
+    ],
+    "unknowns": [],
+    "evidence": [
+      {
+        "path": "src/prompt_security.py",
+        "symbol": "untrusted_context_message",
+        "line_range": "L64-L86",
+        "explanation": "Wraps untrusted context with guard delimiters and sets metadata.trusted = False."
+      },
+      {
+        "path": "src/tool_security.py",
+        "symbol": "NON_ADMIN_BLOCKED_TOOLS",
+        "line_range": "L42-L78",
+        "explanation": "Enforces tool execution safety for non-admin user roles."
+      },
+      {
+        "path": "tests/test_skill_index_prompt_injection.py",
+        "symbol": "test_skill_index",
+        "line_range": "L1-L208",
+        "explanation": "Verifies skill index descriptions cannot leak into trusted system prompts."
+      },
+      {
+        "path": "tests/test_tool_output_prompt_injection.py",
+        "symbol": "test_tool_output",
+        "line_range": "L1-L50",
+        "explanation": "Tool output injection guards."
+      }
+    ],
+    "verified_at_commit": "d8a2059df8e53bc7275c45339849d14c8651e73c",
+    "evidence_maturity": "E1",
+    "runtime_validation": {
+      "required": false,
+      "status": "not-required",
+      "reason": "No separate environment-dependent runtime validation was identified during this documentation pass."
+    }
+  },
+  {
+    "id": "SECURITY-005",
+    "domain": "security",
+    "name": "URL & Path Confinement Security Guards",
+    "purpose": "Prevents SSRF attacks and path traversal by validating target IP addresses and resolving symlinks.",
+    "status": "verified",
+    "frontend_entrypoints": [
+      "static/js/fileHandler.js"
+    ],
+    "backend_entrypoints": [
+      "src/url_security.py:validate_url",
+      "src/url_safety.py",
+      "core/log_safety.py"
+    ],
+    "routes": [
+      "Implicit guard functions"
+    ],
+    "configuration": [
+      "ALLOWED_DOMAINS_WHITELIST"
+    ],
+    "persistence": [],
+    "dependencies": [
+      "ipaddress",
+      "urllib.parse"
+    ],
+    "tests": [
+      "tests/test_url_safety.py",
+      "tests/test_tool_path_confinement.py",
+      "tests/test_workspace_confine.py"
+    ],
+    "documentation": [
+      "THREAT_MODEL.md"
+    ],
+    "risks": [
+      "DNS rebinding attacks if IP address is re-resolved post-validation."
+    ],
+    "unknowns": [],
+    "evidence": [
+      {
+        "path": "src/url_safety.py",
+        "symbol": "check_outbound_url",
+        "line_range": "L60-L108",
+        "explanation": "Rejects non-HTTP(S) schemes, link-local, cloud metadata SSRF addresses."
+      },
+      {
+        "path": "src/url_security.py",
+        "symbol": "validate_public_http_url",
+        "line_range": "L81-L94",
+        "explanation": "Validates public-facing endpoints."
+      },
+      {
+        "path": "tests/test_url_safety.py",
+        "symbol": "test_url_safety",
+        "line_range": "L1-L117",
+        "explanation": "Scheme validation, cloud metadata SSRF rejection, IP classification."
+      },
+      {
+        "path": "tests/test_tool_path_confinement.py",
+        "symbol": "test_path_confinement",
+        "line_range": "L1-L50",
+        "explanation": "Path traversal checks."
+      },
+      {
+        "path": "tests/test_workspace_confine.py",
+        "symbol": "test_workspace_confine",
+        "line_range": "L1-L50",
+        "explanation": "Workspace confinement checks."
+      }
+    ],
+    "verified_at_commit": "d8a2059df8e53bc7275c45339849d14c8651e73c",
+    "evidence_maturity": "E1",
+    "runtime_validation": {
+      "required": false,
+      "status": "not-required",
+      "reason": "No separate environment-dependent runtime validation was identified during this documentation pass."
+    }
+  },
+  {
+    "id": "SECURITY-006",
+    "domain": "security",
+    "name": "HTTP Security Headers Middleware",
+    "purpose": "Injects standard OWASP HTTP security headers (CSP, HSTS, X-Content-Type-Options, X-Frame-Options).",
+    "status": "verified",
+    "frontend_entrypoints": [
+      "static/app.js"
+    ],
+    "backend_entrypoints": [
+      "core/middleware.py:SecurityHeadersMiddleware"
+    ],
+    "routes": [
+      "Applies globally to all routes"
+    ],
+    "configuration": [
+      "CSP_NONCE_ENABLED"
+    ],
+    "persistence": [],
+    "dependencies": [
+      "starlette.middleware.base"
+    ],
+    "tests": [
+      "tests/test_security_headers_middleware.py",
+      "tests/test_security_headers_pdf_preview.py"
+    ],
+    "documentation": [
+      "SECURITY.md"
+    ],
+    "risks": [
+      "Strict Content Security Policy (CSP) blocking third-party embedded web resources."
+    ],
+    "unknowns": [],
+    "evidence": [
+      {
+        "path": "core/middleware.py",
+        "symbol": "SecurityHeadersMiddleware",
+        "line_range": "L40-L110",
+        "explanation": "Sets strict security headers and CSP nonces on HTTP responses."
+      }
+    ],
+    "verified_at_commit": "d8a2059df8e53bc7275c45339849d14c8651e73c",
+    "evidence_maturity": "E0",
+    "runtime_validation": {
+      "required": false,
+      "status": "not-required",
+      "reason": "No separate environment-dependent runtime validation was identified during this documentation pass."
+    }
+  },
+  {
+    "id": "SECURITY-007",
+    "domain": "security",
+    "name": "Admin System Data Wipe ('Danger Zone')",
+    "purpose": "Provides administrative reset operations to wipe sessions, cache, uploaded files, or factory reset state.",
+    "status": "verified",
+    "frontend_entrypoints": [
+      "static/js/admin.js"
+    ],
+    "backend_entrypoints": [
+      "routes/admin_wipe/admin_wipe_routes.py:setup_admin_wipe_routes"
+    ],
+    "routes": [
+      "/api/admin/wipe/{kind}"
+    ],
+    "configuration": [],
+    "persistence": [
+      "ALL storage locations"
+    ],
+    "dependencies": [
+      "os",
+      "shutil"
+    ],
+    "tests": [
+      "tests/test_session_ghost_delete.py"
+    ],
+    "documentation": [
+      "THREAT_MODEL.md"
+    ],
+    "risks": [
+      "Accidental catastrophic data loss if triggered without user confirmation."
+    ],
+    "unknowns": [],
+    "evidence": [
+      {
+        "path": "routes/admin_wipe/admin_wipe_routes.py",
+        "symbol": "@router.delete('/wipe/{kind}')",
+        "line_range": "L71-L130",
+        "explanation": "Executes systemic data wipe based on requested scope."
+      }
+    ],
+    "verified_at_commit": "d8a2059df8e53bc7275c45339849d14c8651e73c",
+    "evidence_maturity": "E0",
+    "runtime_validation": {
+      "required": false,
+      "status": "not-required",
+      "reason": "No separate environment-dependent runtime validation was identified during this documentation pass."
+    }
+  },
+  {
+    "id": "FRONTEND-001",
+    "domain": "frontend",
+    "name": "Single Page Application Shell & Client Router",
+    "purpose": "Main HTML5 SPA shell, DOM lifecycle initializers, tab navigation, and deep-link route handlers.",
+    "status": "verified",
+    "frontend_entrypoints": [
+      "static/index.html",
+      "static/app.js",
+      "static/js/init.js"
+    ],
+    "backend_entrypoints": [
+      "app.py:serve_index"
+    ],
+    "routes": [
+      "/",
+      "/notes",
+      "/calendar",
+      "/cookbook",
+      "/email",
+      "/memory",
+      "/gallery",
+      "/tasks",
+      "/library"
+    ],
+    "configuration": [],
+    "persistence": [
+      "static/index.html"
+    ],
+    "dependencies": [
+      "Vanilla HTML5/JS"
+    ],
+    "tests": [
+      "tests/test_app_static_mime.py",
+      "tests/test_serve_html_with_nonce.py"
+    ],
+    "documentation": [
+      "README.md"
+    ],
+    "risks": [
+      "Stale browser static cache if asset hashing is omitted during deployment."
+    ],
+    "unknowns": [],
+    "evidence": [
+      {
+        "path": "static/index.html",
+        "symbol": "index.html",
+        "line_range": "L1-L200",
+        "explanation": "Main SPA entry point containing modal roots and CSS bundles."
+      },
+      {
+        "path": "app.py",
+        "symbol": "serve_index",
+        "line_range": "L867-L878",
+        "explanation": "Serves index.html with dynamically generated CSP nonces."
+      }
+    ],
+    "verified_at_commit": "d8a2059df8e53bc7275c45339849d14c8651e73c",
+    "evidence_maturity": "E0",
+    "runtime_validation": {
+      "required": false,
+      "status": "not-required",
+      "reason": "No separate environment-dependent runtime validation was identified during this documentation pass."
+    }
+  },
+  {
+    "id": "FRONTEND-002",
+    "domain": "frontend",
+    "name": "Dynamic Theme, Color System & Custom Fonts",
+    "purpose": "Supports dark/light themes, custom CSS variables, color picker controls, and user font uploads.",
+    "status": "verified",
+    "frontend_entrypoints": [
+      "static/js/theme.js",
+      "static/style.css",
+      "static/js/colorPicker.js"
+    ],
+    "backend_entrypoints": [
+      "routes/font_routes.py:setup_font_routes",
+      "routes/prefs_routes.py:setup_prefs_routes"
+    ],
+    "routes": [
+      "/api/font/custom",
+      "/api/prefs"
+    ],
+    "configuration": [],
+    "persistence": [
+      "DATA_DIR/user_prefs.json",
+      "static/fonts/custom/"
+    ],
+    "dependencies": [
+      "Vanilla CSS",
+      "pydantic"
+    ],
+    "tests": [
+      "tests/test_prefs_atomic_write.py",
+      "tests/test_select_dropdown_theme_css.py"
+    ],
+    "documentation": [
+      "docs/theme.webm"
+    ],
+    "risks": [
+      "Flash of unstyled content (FOUC) on slow connections."
+    ],
+    "unknowns": [],
+    "evidence": [
+      {
+        "path": "static/js/theme.js",
+        "symbol": "applyTheme",
+        "line_range": "L1-L90",
+        "explanation": "Applies custom HSL theme variables to DOM document root."
+      },
+      {
+        "path": "routes/font_routes.py",
+        "symbol": "setup_font_routes",
+        "line_range": "L20-L55",
+        "explanation": "Allows uploading and serving custom WOFF2 font files."
+      }
+    ],
+    "verified_at_commit": "d8a2059df8e53bc7275c45339849d14c8651e73c",
+    "evidence_maturity": "E0",
+    "runtime_validation": {
+      "required": false,
+      "status": "not-required",
+      "reason": "No separate environment-dependent runtime validation was identified during this documentation pass."
+    }
+  },
+  {
+    "id": "FRONTEND-003",
+    "domain": "frontend",
+    "name": "Window Manager, Tile Layout & Modal Control System",
+    "purpose": "Manages draggable tool windows, snapped multi-tile viewports, modal dialog Z-ordering, and ESC key stacks.",
+    "status": "verified",
+    "frontend_entrypoints": [
+      "static/js/modalManager.js",
+      "static/js/tileManager.js",
+      "static/js/windowDrag.js",
+      "static/js/windowResize.js",
+      "static/js/escMenuStack.js"
+    ],
+    "backend_entrypoints": [
+      "None (Client UI subsystem)"
+    ],
+    "routes": [],
+    "configuration": [
+      "localStorage: tile_layout_state"
+    ],
+    "persistence": [
+      "Browser localStorage"
+    ],
+    "dependencies": [
+      "Vanilla JS DOM event listeners"
+    ],
+    "tests": [
+      "tests/test_portal_dropdown_z_js.py",
+      "tests/test_tile_manager_snap_zones_js.py"
+    ],
+    "documentation": [
+      "README.md"
+    ],
+    "risks": [
+      "Overlap artifacts when opening many simultaneous tool floating windows."
+    ],
+    "unknowns": [],
+    "evidence": [
+      {
+        "path": "static/js/modalManager.js",
+        "symbol": "ModalManager",
+        "line_range": "L1-L140",
+        "explanation": "Controls modal open/close transitions and focus trapping."
+      },
+      {
+        "path": "static/js/tileManager.js",
+        "symbol": "TileManager",
+        "line_range": "L1-L180",
+        "explanation": "Handles viewport split-pane grid arrangements."
+      }
+    ],
+    "verified_at_commit": "d8a2059df8e53bc7275c45339849d14c8651e73c",
+    "evidence_maturity": "E0",
+    "runtime_validation": {
+      "required": false,
+      "status": "not-required",
+      "reason": "No separate environment-dependent runtime validation was identified during this documentation pass."
+    }
+  },
+  {
+    "id": "FRONTEND-004",
+    "domain": "frontend",
+    "name": "Global Keyboard Shortcuts & Accessibility Controls",
+    "purpose": "Provides configurable hotkeys (Ctrl+K search, Esc close, Alt+1-9 tabs) and high-contrast accessibility options.",
+    "status": "verified",
+    "frontend_entrypoints": [
+      "static/js/keyboard-shortcuts.js",
+      "static/js/a11y.js"
+    ],
+    "backend_entrypoints": [
+      "None (Client UI subsystem)"
+    ],
+    "routes": [],
+    "configuration": [
+      "localStorage: user_hotkeys"
+    ],
+    "persistence": [
+      "Browser localStorage"
+    ],
+    "dependencies": [
+      "Vanilla JS"
+    ],
+    "tests": [
+      "tests/test_keyboard_shortcuts.py"
+    ],
+    "documentation": [
+      "README.md"
+    ],
+    "risks": [
+      "Browser keybinding collisions with browser default hotkeys."
+    ],
+    "unknowns": [],
+    "evidence": [
+      {
+        "path": "static/js/keyboard-shortcuts.js",
+        "symbol": "initShortcuts",
+        "line_range": "L1-L110",
+        "explanation": "Binds global keydown handlers for system shortcuts."
+      },
+      {
+        "path": "static/js/a11y.js",
+        "symbol": "initA11y",
+        "line_range": "L1-L80",
+        "explanation": "Applies ARIA roles and dyslexic font toggles."
+      }
+    ],
+    "verified_at_commit": "d8a2059df8e53bc7275c45339849d14c8651e73c",
+    "evidence_maturity": "E0",
+    "runtime_validation": {
+      "required": false,
+      "status": "not-required",
+      "reason": "No separate environment-dependent runtime validation was identified during this documentation pass."
+    }
+  },
+  {
+    "id": "FRONTEND-005",
+    "domain": "frontend",
+    "name": "Markdown, LaTeX & Code Block Streaming Renderer",
+    "purpose": "Parses incoming SSE markdown streams, renders KaTeX math formulas, syntax-highlighted code, and interactive runners.",
+    "status": "verified",
+    "frontend_entrypoints": [
+      "static/js/markdown.js",
+      "static/js/streamingRenderer.js",
+      "static/js/streamingSegmenter.js",
+      "static/js/codeRunner.js"
+    ],
+    "backend_entrypoints": [
+      "None (Client rendering subsystem)"
+    ],
+    "routes": [],
+    "configuration": [],
+    "persistence": [
+      "Browser DOM"
+    ],
+    "dependencies": [
+      "highlight.js",
+      "katex"
+    ],
+    "tests": [
+      "tests/streaming/segmenter.test.mjs",
+      "tests/test_streaming_segmenter_js.py"
+    ],
+    "documentation": [
+      "README.md"
+    ],
+    "risks": [
+      "DOM thrashing if streaming segmenter updates UI too frequently."
+    ],
+    "unknowns": [],
+    "evidence": [
+      {
+        "path": "static/js/markdown.js",
+        "symbol": "renderMarkdown",
+        "line_range": "L1-L200",
+        "explanation": "Converts markdown prose to HTML nodes with syntax highlighting."
+      },
+      {
+        "path": "static/js/streamingSegmenter.js",
+        "symbol": "Segmenter",
+        "line_range": "L1-L150",
+        "explanation": "Parses un-closed markdown fences during live stream."
+      }
+    ],
+    "verified_at_commit": "d8a2059df8e53bc7275c45339849d14c8651e73c",
+    "evidence_maturity": "E0",
+    "runtime_validation": {
+      "required": false,
+      "status": "not-required",
+      "reason": "No separate environment-dependent runtime validation was identified during this documentation pass."
+    }
+  },
+  {
+    "id": "FRONTEND-006",
+    "domain": "frontend",
+    "name": "Interactive Tour & Guided Onboarding System",
+    "purpose": "Presents interactive step-by-step feature tours and UI tooltip hints for new users.",
+    "status": "verified",
+    "frontend_entrypoints": [
+      "static/js/tourHints.js",
+      "static/js/tourAutoplay.js"
+    ],
+    "backend_entrypoints": [
+      "None (Client UI subsystem)"
+    ],
+    "routes": [],
+    "configuration": [
+      "localStorage: tour_completed"
+    ],
+    "persistence": [
+      "Browser localStorage"
+    ],
+    "dependencies": [
+      "Vanilla JS"
+    ],
+    "tests": [
+      "tests/test_task_routes.py"
+    ],
+    "documentation": [
+      "README.md"
+    ],
+    "risks": [
+      "Tour step misalignment if window is resized mid-tour."
+    ],
+    "unknowns": [],
+    "evidence": [
+      {
+        "path": "static/js/tourHints.js",
+        "symbol": "startTour",
+        "line_range": "L1-L120",
+        "explanation": "Renders guided feature tour overlays over target UI elements."
+      }
+    ],
+    "verified_at_commit": "d8a2059df8e53bc7275c45339849d14c8651e73c",
+    "evidence_maturity": "E0",
+    "runtime_validation": {
+      "required": false,
+      "status": "not-required",
+      "reason": "No separate environment-dependent runtime validation was identified during this documentation pass."
+    }
+  },
+  {
+    "id": "FRONTEND-007",
+    "domain": "frontend",
+    "name": "Background Effects Prototyping Sandbox",
+    "purpose": "Standalone sandbox page for prototyping visual background animations, waves, and whirlpool effects.",
+    "status": "dead-code-candidate",
+    "frontend_entrypoints": [
+      "static/wave-variants.html",
+      "static/whirlpool-variants.html"
+    ],
+    "backend_entrypoints": [
+      "app.py:serve_backgrounds"
+    ],
+    "routes": [
+      "/backgrounds"
+    ],
+    "configuration": [],
+    "persistence": [
+      "None"
+    ],
+    "dependencies": [
+      "HTML5 Canvas",
+      "WebGL"
+    ],
+    "tests": [],
+    "documentation": [
+      "README.md"
+    ],
+    "risks": [
+      "High GPU utilization when rendering complex shader wave animations."
+    ],
+    "unknowns": [
+      "Route `/backgrounds` in app.py L918 attempts to serve `static/backgrounds.html` which is missing from disk; variant templates `wave-variants.html` and `whirlpool-variants.html` exist."
+    ],
+    "evidence": [
+      {
+        "path": "app.py",
+        "symbol": "serve_backgrounds",
+        "line_range": "L915-L918",
+        "explanation": "Serves visual background sandbox HTML page route."
+      },
+      {
+        "path": "static/wave-variants.html",
+        "symbol": "wave-variants.html",
+        "line_range": "L1-L150",
+        "explanation": "Interactive background effect prototyping sandbox variant."
+      }
+    ],
+    "verified_at_commit": "d8a2059df8e53bc7275c45339849d14c8651e73c",
+    "evidence_maturity": "E1",
+    "runtime_validation": {
+      "required": false,
+      "status": "not-required",
+      "reason": "No separate environment-dependent runtime validation was identified during this documentation pass."
+    }
+  },
+  {
+    "id": "PLATFORM-001",
+    "domain": "platform",
+    "name": "Application Initialization & Lifespan Management",
+    "purpose": "Orchestrates server startup, database table migration, background daemon initialization, and clean shutdown.",
+    "status": "verified",
+    "frontend_entrypoints": [
+      "app.py"
+    ],
+    "backend_entrypoints": [
+      "app.py:_lifespan",
+      "src/app_initializer.py:initialize_app"
+    ],
+    "routes": [
+      "App startup lifespan"
+    ],
+    "configuration": [],
+    "persistence": [
+      "DATA_DIR/"
+    ],
+    "dependencies": [
+      "asyncio",
+      "logging"
+    ],
+    "tests": [
+      "tests/test_app_helpers.py"
+    ],
+    "documentation": [
+      "docs/setup.md"
+    ],
+    "risks": [
+      "Un-handled exceptions during startup halt application launch."
+    ],
+    "unknowns": [],
+    "evidence": [
+      {
+        "path": "app.py",
+        "symbol": "_lifespan",
+        "line_range": "L996-L1030",
+        "explanation": "FastAPI lifespan context manager executing startup tasks."
+      },
+      {
+        "path": "src/app_initializer.py",
+        "symbol": "initialize_app",
+        "line_range": "L29-L125",
+        "explanation": "Initializes app directories, DB schemas, and logging."
+      }
+    ],
+    "verified_at_commit": "d8a2059df8e53bc7275c45339849d14c8651e73c",
+    "evidence_maturity": "E0",
+    "runtime_validation": {
+      "required": false,
+      "status": "not-required",
+      "reason": "No separate environment-dependent runtime validation was identified during this documentation pass."
+    }
+  },
+  {
+    "id": "PLATFORM-002",
+    "domain": "platform",
+    "name": "System Health, Readiness & Version Monitoring APIs",
+    "purpose": "Exposes Liveness (/api/health), Readiness (/api/ready), App Version (/api/version), and Client Perf APIs.",
+    "status": "verified",
+    "frontend_entrypoints": [
+      "static/js/admin.js"
+    ],
+    "backend_entrypoints": [
+      "app.py:health_check",
+      "app.py:readiness_check",
+      "app.py:get_version",
+      "src/readiness.py"
+    ],
+    "routes": [
+      "/api/health",
+      "/api/ready",
+      "/api/version",
+      "/api/runtime",
+      "/api/client-perf"
+    ],
+    "configuration": [],
+    "persistence": [],
+    "dependencies": [
+      "fastapi"
+    ],
+    "tests": [
+      "tests/test_readiness.py"
+    ],
+    "documentation": [
+      "README.md"
+    ],
+    "risks": [
+      "Readiness check delays if verifying connectivity to offline remote endpoints."
+    ],
+    "unknowns": [],
+    "evidence": [
+      {
+        "path": "app.py",
+        "symbol": "readiness_check",
+        "line_range": "L963-L973",
+        "explanation": "Performs system component integrity check."
+      },
+      {
+        "path": "src/readiness.py",
+        "symbol": "check_readiness",
+        "line_range": "L15-L61",
+        "explanation": "Checks database, storage, and key paths for read/write access."
+      }
+    ],
+    "verified_at_commit": "d8a2059df8e53bc7275c45339849d14c8651e73c",
+    "evidence_maturity": "E0",
+    "runtime_validation": {
+      "required": false,
+      "status": "not-required",
+      "reason": "No separate environment-dependent runtime validation was identified during this documentation pass."
+    }
+  },
+  {
+    "id": "PLATFORM-003",
+    "domain": "platform",
+    "name": "Database Schema, Migrations & SQLite Persistence",
+    "purpose": "Defines core relational tables (users, tokens, tasks, sessions) and executes automated SQLite schema upgrades.",
+    "status": "verified",
+    "frontend_entrypoints": [
+      "scripts/update_database.py"
+    ],
+    "backend_entrypoints": [
+      "core/database.py:init_db",
+      "scripts/update_database.py:run_migrations",
+      "src/database.py"
+    ],
+    "routes": [
+      "Implicit DB queries"
+    ],
+    "configuration": [
+      "DATABASE_URL"
+    ],
+    "persistence": [
+      "DATA_DIR/odysseus.db"
+    ],
+    "dependencies": [
+      "sqlalchemy",
+      "alembic",
+      "sqlite3"
+    ],
+    "tests": [
+      "tests/test_sqlite_foreign_keys.py",
+      "tests/test_update_database_script.py",
+      "tests/test_app_db_permissions.py"
+    ],
+    "documentation": [
+      "docs/setup.md"
+    ],
+    "risks": [
+      "SQLite file lock contention under high concurrent write loads."
+    ],
+    "unknowns": [],
+    "evidence": [
+      {
+        "path": "core/database.py",
+        "symbol": "init_db",
+        "line_range": "L40-L120",
+        "explanation": "Creates ORM tables and establishes connection pool."
+      },
+      {
+        "path": "scripts/update_database.py",
+        "symbol": "run_migrations",
+        "line_range": "L20-L110",
+        "explanation": "Applies missing schema columns and indices."
+      }
+    ],
+    "verified_at_commit": "d8a2059df8e53bc7275c45339849d14c8651e73c",
+    "evidence_maturity": "E0",
+    "runtime_validation": {
+      "required": false,
+      "status": "not-required",
+      "reason": "No separate environment-dependent runtime validation was identified during this documentation pass."
+    }
+  },
+  {
+    "id": "PLATFORM-004",
+    "domain": "platform",
+    "name": "User Data Export & Import Backup Infrastructure",
+    "purpose": "Exports complete user workspace state (sessions, memory, skills, notes, presets) into a zip archive.",
+    "status": "verified",
+    "frontend_entrypoints": [
+      "static/js/settings.js"
+    ],
+    "backend_entrypoints": [
+      "routes/backup_routes.py:setup_backup_routes",
+      "scripts/odysseus-backup"
+    ],
+    "routes": [
+      "/api/backup/export",
+      "/api/backup/import"
+    ],
+    "configuration": [],
+    "persistence": [
+      "ZIP archive files"
+    ],
+    "dependencies": [
+      "zipfile",
+      "json"
+    ],
+    "tests": [
+      "tests/cli/test_preset_cli_store.py"
+    ],
+    "documentation": [
+      "docs/backup-restore.md"
+    ],
+    "risks": [
+      "Corrupt archive files causing partial data restore."
+    ],
+    "unknowns": [],
+    "evidence": [
+      {
+        "path": "routes/backup_routes.py",
+        "symbol": "setup_backup_routes",
+        "line_range": "L30-L140",
+        "explanation": "Handles workspace data export and import upload unpack."
+      },
+      {
+        "path": "docs/backup-restore.md",
+        "symbol": "Documentation",
+        "line_range": "L1-L50",
+        "explanation": "Backup and restore operational documentation."
+      }
+    ],
+    "verified_at_commit": "d8a2059df8e53bc7275c45339849d14c8651e73c",
+    "evidence_maturity": "E0",
+    "runtime_validation": {
+      "required": false,
+      "status": "not-required",
+      "reason": "No separate environment-dependent runtime validation was identified during this documentation pass."
+    }
+  },
+  {
+    "id": "PLATFORM-005",
+    "domain": "platform",
+    "name": "File Cleanup & Storage Maintenance Engine",
+    "purpose": "Scans data directories for orphaned files, old uploads, temporary vision images, and frees disk space.",
+    "status": "verified",
+    "frontend_entrypoints": [
+      "static/js/storage.js"
+    ],
+    "backend_entrypoints": [
+      "routes/cleanup/cleanup_routes.py:setup_cleanup_routes",
+      "src/cleanup_service.py",
+      "src/session_image_cleanup.py"
+    ],
+    "routes": [
+      "/api/cleanup/preview",
+      "/api/cleanup"
+    ],
+    "configuration": [
+      "CLEANUP_RETENTION_DAYS"
+    ],
+    "persistence": [
+      "DATA_DIR/uploads/"
+    ],
+    "dependencies": [
+      "os",
+      "shutil"
+    ],
+    "tests": [
+      "tests/test_session_actions_cleanup.py",
+      "tests/test_session_image_cleanup.py"
+    ],
+    "documentation": [
+      "README.md"
+    ],
+    "risks": [
+      "Deletes files uploaded in active sessions if retention window is set too short."
+    ],
+    "unknowns": [],
+    "evidence": [
+      {
+        "path": "routes/cleanup/cleanup_routes.py",
+        "symbol": "@router.get('/preview')",
+        "line_range": "L22-L37",
+        "explanation": "Previews reclaimable disk space across storage directories."
+      },
+      {
+        "path": "src/cleanup_service.py",
+        "symbol": "CleanupService",
+        "line_range": "L25-L120",
+        "explanation": "Executes filesystem purge of orphaned asset files."
+      }
+    ],
+    "verified_at_commit": "d8a2059df8e53bc7275c45339849d14c8651e73c",
+    "evidence_maturity": "E0",
+    "runtime_validation": {
+      "required": false,
+      "status": "not-required",
+      "reason": "No separate environment-dependent runtime validation was identified during this documentation pass."
+    }
+  },
+  {
+    "id": "PLATFORM-006",
+    "domain": "platform",
+    "name": "System Health & RAG Diagnostic Suite",
+    "purpose": "Executes real-time integrity diagnostics across ChromaDB, SearXNG, local models, and network interfaces.",
+    "status": "verified",
+    "frontend_entrypoints": [
+      "static/js/settings.js"
+    ],
+    "backend_entrypoints": [
+      "routes/diagnostics_routes.py:setup_diagnostics_routes",
+      "src/service_health.py"
+    ],
+    "routes": [
+      "/api/diagnostics"
+    ],
+    "configuration": [],
+    "persistence": [],
+    "dependencies": [
+      "httpx",
+      "chromadb"
+    ],
+    "tests": [
+      "tests/test_service_health_collect.py",
+      "tests/test_service_health_chromadb.py"
+    ],
+    "documentation": [
+      "README.md"
+    ],
+    "risks": [
+      "Diagnostic timeout if external search provider is unreachable."
+    ],
+    "unknowns": [],
+    "evidence": [
+      {
+        "path": "routes/diagnostics_routes.py",
+        "symbol": "setup_diagnostics_routes",
+        "line_range": "L30-L100",
+        "explanation": "Runs subsystem health check suite."
+      },
+      {
+        "path": "src/service_health.py",
+        "symbol": "collect_health_status",
+        "line_range": "L20-L150",
+        "explanation": "Inspects vector database, email, search, and local provider status."
+      }
+    ],
+    "verified_at_commit": "d8a2059df8e53bc7275c45339849d14c8651e73c",
+    "evidence_maturity": "E0",
+    "runtime_validation": {
+      "required": false,
+      "status": "not-required",
+      "reason": "No separate environment-dependent runtime validation was identified during this documentation pass."
+    }
+  },
+  {
+    "id": "PLATFORM-007",
+    "domain": "platform",
+    "name": "Desktop CLI Utilities & Shell Integration Tools",
+    "purpose": "Provides command-line interface tools (`odysseus`, `odysseus-mcp`, `odysseus-mail`) for terminal usage.",
+    "status": "verified",
+    "frontend_entrypoints": [
+      "scripts/odysseus",
+      "scripts/odysseus-mcp",
+      "scripts/odysseus-mail",
+      "scripts/odysseus-calendar"
+    ],
+    "backend_entrypoints": [
+      "scripts/_lib/cli.py:main"
+    ],
+    "routes": [
+      "CLI commands"
+    ],
+    "configuration": [],
+    "persistence": [
+      "CLI configuration"
+    ],
+    "dependencies": [
+      "urllib",
+      "json"
+    ],
+    "tests": [
+      "tests/cli/test_sessions_cli.py",
+      "tests/cli/test_mail_cli_recipients.py"
+    ],
+    "documentation": [
+      "README.md"
+    ],
+    "risks": [
+      "Outdated CLI scripts if backend API schemas change."
+    ],
+    "unknowns": [],
+    "evidence": [
+      {
+        "path": "scripts/_lib/cli.py",
+        "symbol": "main",
+        "line_range": "L15-L110",
+        "explanation": "Shared CLI framework for terminal helper commands."
+      },
+      {
+        "path": "scripts/odysseus",
+        "symbol": "odysseus",
+        "line_range": "L1-L50",
+        "explanation": "Main terminal launcher script."
+      }
+    ],
+    "verified_at_commit": "d8a2059df8e53bc7275c45339849d14c8651e73c",
+    "evidence_maturity": "E0",
+    "runtime_validation": {
+      "required": false,
+      "status": "not-required",
+      "reason": "No separate environment-dependent runtime validation was identified during this documentation pass."
+    }
+  },
+  {
+    "id": "PLATFORM-008",
+    "domain": "platform",
+    "name": "Desktop Companion App Integration",
+    "purpose": "Provides API routes and pairing mechanisms for the native macOS/desktop menu bar companion app.",
+    "status": "verified",
+    "frontend_entrypoints": [
+      "companion/README.md"
+    ],
+    "backend_entrypoints": [
+      "companion/pairing.py",
+      "companion/routes.py:setup_companion_routes"
+    ],
+    "routes": [
+      "/companion/pair",
+      "/companion/status"
+    ],
+    "configuration": [
+      "COMPANION_SECRET_KEY"
+    ],
+    "persistence": [
+      "companion_pairing.json"
+    ],
+    "dependencies": [
+      "fastapi"
+    ],
+    "tests": [
+      "tests/helpers/import_state.py"
+    ],
+    "documentation": [
+      "companion/README.md"
+    ],
+    "risks": [
+      "Pairing code expiration timing window."
+    ],
+    "unknowns": [],
+    "evidence": [
+      {
+        "path": "companion/routes.py",
+        "symbol": "setup_companion_routes",
+        "line_range": "L20-L120",
+        "explanation": "Endpoints for pairing and status sync with desktop companion."
+      },
+      {
+        "path": "companion/pairing.py",
+        "symbol": "PairingManager",
+        "line_range": "L15-L80",
+        "explanation": "Generates and validates companion pairing codes."
+      }
+    ],
+    "verified_at_commit": "d8a2059df8e53bc7275c45339849d14c8651e73c",
+    "evidence_maturity": "E0",
+    "runtime_validation": {
+      "required": false,
+      "status": "not-required",
+      "reason": "No separate environment-dependent runtime validation was identified during this documentation pass."
+    }
+  },
+  {
+    "id": "PLATFORM-009",
+    "domain": "platform",
+    "name": "Docker Containerization & GPU Hardware Manifests",
+    "purpose": "Provides multi-stage Dockerfile and Docker Compose manifests for CPU, NVIDIA CUDA, and AMD ROCm GPUs.",
+    "status": "verified",
+    "frontend_entrypoints": [
+      "Dockerfile",
+      "docker-compose.yml",
+      "docker-compose.gpu-nvidia.yml",
+      "docker-compose.gpu-amd.yml"
+    ],
+    "backend_entrypoints": [
+      "docker/entrypoint.sh"
+    ],
+    "routes": [
+      "Containerized application"
+    ],
+    "configuration": [
+      "DOCKER_GPU_VENDOR"
+    ],
+    "persistence": [
+      "Container volumes"
+    ],
+    "dependencies": [
+      "Docker",
+      "NVIDIA Container Toolkit"
+    ],
+    "tests": [
+      "scripts/check-docker-gpu.sh"
+    ],
+    "documentation": [
+      "docs/setup.md"
+    ],
+    "risks": [
+      "Driver version incompatibility with host NVIDIA/AMD kernel drivers."
+    ],
+    "unknowns": [],
+    "evidence": [
+      {
+        "path": "Dockerfile",
+        "symbol": "multi-stage-build",
+        "line_range": "L1-L113",
+        "explanation": "Multi-stage container build environment."
+      },
+      {
+        "path": "docker-compose.gpu-nvidia.yml",
+        "symbol": "nvidia-gpu-manifest",
+        "line_range": "L1-L179",
+        "explanation": "NVIDIA GPU pass-through container specification."
+      },
+      {
+        "path": "scripts/check-docker-gpu.sh",
+        "symbol": "check-docker-gpu",
+        "line_range": "L1-L615",
+        "explanation": "Automated diagnostic test script for host NVIDIA GPU passthrough."
+      }
+    ],
+    "verified_at_commit": "d8a2059df8e53bc7275c45339849d14c8651e73c",
+    "evidence_maturity": "E0",
+    "runtime_validation": {
+      "required": true,
+      "status": "pending",
+      "reason": "Requires Docker GPU pass-through and compatible host drivers."
+    }
+  },
+  {
+    "id": "PLATFORM-010",
+    "domain": "platform",
+    "name": "Legacy FAISS Vector Index Migration Script",
+    "purpose": "Legacy utility script to migrate older FAISS vector indices into ChromaDB.",
+    "status": "legacy",
+    "frontend_entrypoints": [
+      "None"
+    ],
+    "backend_entrypoints": [
+      "scripts/migrate_faiss_to_chroma.py"
+    ],
+    "routes": [
+      "CLI Script"
+    ],
+    "configuration": [],
+    "persistence": [
+      "Legacy FAISS index files"
+    ],
+    "dependencies": [
+      "faiss",
+      "chromadb"
+    ],
+    "tests": [
+      "tests/helpers/import_state.py"
+    ],
+    "documentation": [
+      "README.md"
+    ],
+    "risks": [
+      "Fails if legacy FAISS index files do not exist."
+    ],
+    "unknowns": [
+      "Superseded by native ChromaDB vector index pipeline."
+    ],
+    "evidence": [
+      {
+        "path": "scripts/migrate_faiss_to_chroma.py",
+        "symbol": "migrate_faiss",
+        "line_range": "L15-L80",
+        "explanation": "Reads FAISS vector index files and writes to ChromaDB collection."
+      }
+    ],
+    "verified_at_commit": "d8a2059df8e53bc7275c45339849d14c8651e73c",
+    "evidence_maturity": "E0",
+    "runtime_validation": {
+      "required": false,
+      "status": "not-required",
+      "reason": "No separate environment-dependent runtime validation was identified during this documentation pass."
+    }
+  },
+  {
+    "id": "NOTE-001",
+    "domain": "note",
+    "name": "Interactive Notes & Checklist Management",
+    "purpose": "Provides Google Keep-style notes, rich markdown text, checklist items, pinning, color tags, and reminders.",
+    "status": "verified",
+    "frontend_entrypoints": [
+      "static/js/notes.js"
+    ],
+    "backend_entrypoints": [
+      "routes/note/note_routes.py:setup_note_routes",
+      "src/tools/notes.py"
+    ],
+    "routes": [
+      "/api/notes",
+      "/api/notes/{note_id}",
+      "/api/notes/{note_id}/pin",
+      "/api/notes/reorder"
+    ],
+    "configuration": [],
+    "persistence": [
+      "DATA_DIR/notes.db"
+    ],
+    "dependencies": [
+      "sqlite3",
+      "pydantic"
+    ],
+    "tests": [
+      "tests/test_notes_fail_closed_auth.py",
+      "tests/test_manage_notes_owner_gate.py"
+    ],
+    "documentation": [
+      "docs/notes.webm"
+    ],
+    "risks": [
+      "Concurrent edits on note item checkboxes."
+    ],
+    "unknowns": [],
+    "evidence": [
+      {
+        "path": "routes/note/note_routes.py",
+        "symbol": "@router.get('')",
+        "line_range": "L623-L650",
+        "explanation": "Lists all user notes with pin and archive states."
+      },
+      {
+        "path": "static/js/notes.js",
+        "symbol": "initNotesView",
+        "line_range": "L1-L160",
+        "explanation": "Main interactive notes grid and modal manager."
+      }
+    ],
+    "verified_at_commit": "d8a2059df8e53bc7275c45339849d14c8651e73c",
+    "evidence_maturity": "E0",
+    "runtime_validation": {
+      "required": false,
+      "status": "not-required",
+      "reason": "No separate environment-dependent runtime validation was identified during this documentation pass."
+    }
+  },
+  {
+    "id": "SKILL-001",
+    "domain": "skill",
+    "name": "Dynamic Skill Management & Code Execution Engine",
+    "purpose": "Allows users to create, import, edit, test, and execute custom Python/Markdown skills dynamically.",
+    "status": "verified",
+    "frontend_entrypoints": [
+      "static/js/skills.js"
+    ],
+    "backend_entrypoints": [
+      "routes/skills_routes.py:setup_skills_routes",
+      "services/memory/skills.py:SkillsManager"
+    ],
+    "routes": [
+      "/api/skills",
+      "/api/skills/{skill_id}/invoke",
+      "/api/skills/import-from-url"
+    ],
+    "configuration": [
+      "SKILLS_DIR"
+    ],
+    "persistence": [
+      "DATA_DIR/skills/"
+    ],
+    "dependencies": [
+      "pydantic",
+      "httpx"
+    ],
+    "tests": [
+      "tests/test_skills_routes_owner_update.py",
+      "tests/test_skill_importer.py",
+      "tests/test_skill_save_no_rename.py"
+    ],
+    "documentation": [
+      "README.md"
+    ],
+    "risks": [
+      "Arbitrary code execution risks if skill import URL is untrusted."
+    ],
+    "unknowns": [],
+    "evidence": [
+      {
+        "path": "routes/skills_routes.py",
+        "symbol": "setup_skills_routes",
+        "line_range": "L100-L300",
+        "explanation": "Exposes CRUD and remote import routes for user skills."
+      },
+      {
+        "path": "services/memory/skills.py",
+        "symbol": "SkillsManager",
+        "line_range": "L40-L220",
+        "explanation": "Handles skill storage, parsing, and execution."
+      }
+    ],
+    "verified_at_commit": "d8a2059df8e53bc7275c45339849d14c8651e73c",
+    "evidence_maturity": "E0",
+    "runtime_validation": {
+      "required": false,
+      "status": "not-required",
+      "reason": "No separate environment-dependent runtime validation was identified during this documentation pass."
+    }
+  },
+  {
+    "id": "CONTACT-001",
+    "domain": "contact",
+    "name": "CardDAV Contact Management & Address Book Integration",
+    "purpose": "Connects to CardDAV servers, imports VCard contacts, and provides contact lookup for email/calendar autocomplete.",
+    "status": "verified",
+    "frontend_entrypoints": [
+      "static/js/emailLibrary.js"
+    ],
+    "backend_entrypoints": [
+      "routes/contacts/contacts_routes.py:setup_contacts_routes",
+      "src/tools/contacts.py"
+    ],
+    "routes": [
+      "/api/contacts/list",
+      "/api/contacts/search",
+      "/api/contacts/add",
+      "/api/contacts/config"
+    ],
+    "configuration": [
+      "CARDDAV_URL"
+    ],
+    "persistence": [
+      "DATA_DIR/contacts.db"
+    ],
+    "dependencies": [
+      "vobject",
+      "sqlite3"
+    ],
+    "tests": [
+      "tests/test_contacts_carddav_security.py",
+      "tests/cli/test_contacts_cli_rows.py"
+    ],
+    "documentation": [
+      "README.md"
+    ],
+    "risks": [
+      "VCard 3.0 vs 4.0 property parsing mismatches."
+    ],
+    "unknowns": [],
+    "evidence": [
+      {
+        "path": "routes/contacts/contacts_routes.py",
+        "symbol": "@router.get('/list')",
+        "line_range": "L741-L764",
+        "explanation": "Returns contact list filtered by search query."
+      },
+      {
+        "path": "src/tools/contacts.py",
+        "symbol": "ContactsTool",
+        "line_range": "L20-L110",
+        "explanation": "Agent tool for querying user address book contacts."
+      }
+    ],
+    "verified_at_commit": "d8a2059df8e53bc7275c45339849d14c8651e73c",
+    "evidence_maturity": "E0",
+    "runtime_validation": {
+      "required": false,
+      "status": "not-required",
+      "reason": "No separate environment-dependent runtime validation was identified during this documentation pass."
+    }
+  },
+  {
+    "id": "MEMORY-001",
+    "domain": "memory",
+    "name": "Persistent Long-Term Memory & Vector Indexing",
+    "purpose": "Extracts facts, user preferences, and temporal memories from chat sessions into vector/relational storage.",
+    "status": "verified",
+    "frontend_entrypoints": [
+      "static/js/memory.js"
+    ],
+    "backend_entrypoints": [
+      "routes/memory/memory_routes.py:setup_memory_routes",
+      "services/memory/service.py",
+      "mcp_servers/memory_server.py"
+    ],
+    "routes": [
+      "/api/memory",
+      "/api/memory/search",
+      "/api/memory/extract",
+      "/api/memory/audit"
+    ],
+    "configuration": [
+      "MEMORY_AUTO_EXTRACT"
+    ],
+    "persistence": [
+      "DATA_DIR/memory.db",
+      "DATA_DIR/memory_chroma/"
+    ],
+    "dependencies": [
+      "sqlite3",
+      "chromadb"
+    ],
+    "tests": [
+      "tests/test_memory_routes_session_owner.py",
+      "tests/test_consolidate_memory_explicit_drops.py"
+    ],
+    "documentation": [
+      "docs/theme.webm"
+    ],
+    "risks": [
+      "Conflicting memory facts extracted from contradictory user prompts."
+    ],
+    "unknowns": [],
+    "evidence": [
+      {
+        "path": "routes/memory/memory_routes.py",
+        "symbol": "@router.get('')",
+        "line_range": "L132-L150",
+        "explanation": "Fetches long-term user memory timeline."
+      },
+      {
+        "path": "services/memory/memory_extractor.py",
+        "symbol": "MemoryExtractor",
+        "line_range": "L30-L160",
+        "explanation": "LLM-driven fact extraction from conversation transcripts."
+      }
+    ],
+    "verified_at_commit": "d8a2059df8e53bc7275c45339849d14c8651e73c",
+    "evidence_maturity": "E0",
+    "runtime_validation": {
+      "required": false,
+      "status": "not-required",
+      "reason": "No separate environment-dependent runtime validation was identified during this documentation pass."
+    }
+  }
+]
