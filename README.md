@@ -55,7 +55,7 @@ A full hover-to-play tour lives on the landing page: [`docs/index.html`](docs/in
 
 ## Contributing
 
-Help is welcome. The best entry points are fresh-install testing, provider setup bugs, mobile/editor polish, docs, and small focused refactors. See [CONTRIBUTING.md](CONTRIBUTING.md) and [ROADMAP.md](ROADMAP.md).
+Help is welcome. The best entry points are fresh-install testing, provider setup bugs, mobile/editor polish, documentation, and small focused refactors. See [CONTRIBUTING.md](CONTRIBUTING.md), the [public roadmap](ROADMAP.md), and the open [GitHub issues](https://github.com/odysseus-dev/odysseus/issues).
 
 ## Security
 
