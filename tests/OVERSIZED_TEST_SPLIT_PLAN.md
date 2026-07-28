@@ -2,6 +2,10 @@
 
 > [!NOTE]
 > This is generated planning material based on the current test tree.
+>
+> It is non-canonical and disposable. Durable testing policy belongs in
+> `tests/TESTING_STANDARD.md`; active split selection and prioritization
+> belong in approved issues or the project tracker.
 > It does not define runtime behaviour or approve any test-file split.
 
 ## Purpose

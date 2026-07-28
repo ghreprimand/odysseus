@@ -10,6 +10,23 @@
 - **Implemented by:** #3842
 - **Status:** completed historical snapshot
 
+- **Durable testing policy:** [`TESTING_STANDARD.md`](./TESTING_STANDARD.md)
+- **Current testing mechanics:** [`README.md`](./README.md)
+
+## Disposition
+
+This document is retained as a non-canonical historical record of the completed
+CLI test relocation.
+
+Reusable testing rules are maintained in `TESTING_STANDARD.md`; current helper,
+taxonomy-runner, and execution mechanics are maintained in `README.md`, the test
+suite, and its supporting code.
+
+Counts, residual-file observations, and path listings in this document are
+snapshot evidence only. They must not be maintained as durable repository truth.
+
+Any additional test relocation requires a separately approved issue or work item.
+
 ## Purpose
 
 This document preserves the reasoning, scope, and validation contract for the
