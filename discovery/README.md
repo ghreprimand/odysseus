@@ -31,4 +31,4 @@ Compact, code-grounded discovery maps of cross-cutting systems in the checked-in
 4. When no owning specification exists, retain the verified finding here and record missing documentation ownership as a follow-up; otherwise retain unresolved context here and correct stale wording.
 
 > [!NOTE]
-> This package intentionally contains no generator, validator, maturity scale, feature database, or parallel work tracker. The [architecture runtime inventory](../specs/architecture-runtime-inventory.md) remains useful structural context, but is an explicitly draft snapshot.
+> This package intentionally contains no generator, validator, maturity scale, feature database, or parallel work tracker. The [architecture runtime inventory](./architecture-runtime-inventory.md) preserves dated structural metrics, investigation context, and historical planning as an explicitly non-canonical snapshot.
