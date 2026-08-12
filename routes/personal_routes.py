@@ -328,10 +328,12 @@ def setup_personal_routes(personal_docs_manager, rag_manager, rag_available):
 
         upload_dir = _personal_upload_dir_for_owner(user)
 
-        total_indexed = 0
         total_failed = 0
-        uploaded_files = []
 
+        # Read the request bodies on the event loop — that part is genuine async
+        # I/O — then stage them so every blocking step happens in one offloaded
+        # critical section below.
+        staged: List[Tuple[str, str, str, bytes]] = []
         for upload in files:
             try:
                 file_path, stored_name, safe_name = _unique_personal_upload_path(upload_dir, upload.filename)
@@ -340,46 +342,67 @@ def setup_personal_routes(personal_docs_manager, rag_manager, rag_available):
                     logger.warning(f"Rejected oversized personal upload: {upload.filename!r}")
                     total_failed += 1
                     continue
-                with open(file_path, "wb") as f:
-                    f.write(content_bytes)
-
-                ext = os.path.splitext(safe_name)[1].lower()
-                if ext == ".pdf":
-                    from src.personal_docs import extract_pdf_text
-                    text = extract_pdf_text(file_path)
-                else:
-                    text = content_bytes.decode("utf-8", errors="replace")
-
-                if not text or not text.strip():
-                    total_failed += 1
-                    continue
-
-                # Chunk and index
-                chunks = rag._split_into_chunks(text, chunk_size=500)
-                for i, chunk in enumerate(chunks):
-                    metadata = {
-                        "source": file_path,
-                        "filename": safe_name,
-                        "stored_filename": stored_name,
-                        "directory": upload_dir,
-                        "type": ext,
-                        "chunk_id": i,
-                    }
-                    if user:
-                        metadata["owner"] = user
-                    if rag.add_document(chunk, metadata):
-                        total_indexed += 1
-                    else:
-                        total_failed += 1
-
-                uploaded_files.append(safe_name)
+                staged.append((file_path, stored_name, safe_name, content_bytes))
             except Exception as e:
-                logger.error(f"Failed to upload/index {upload.filename}: {e}")
+                logger.error(f"Failed to read upload {upload.filename}: {e}")
                 total_failed += 1
 
-        # Track uploads directory
-        if uploaded_files and hasattr(personal_docs_manager, "add_directory"):
-            personal_docs_manager.add_directory(upload_dir, index=False)
+        def _index_uploads():
+            indexed = 0
+            failed = 0
+            names = []
+            for file_path, stored_name, safe_name, content_bytes in staged:
+                try:
+                    with open(file_path, "wb") as f:
+                        f.write(content_bytes)
+
+                    ext = os.path.splitext(safe_name)[1].lower()
+                    if ext == ".pdf":
+                        from src.personal_docs import extract_pdf_text
+                        text = extract_pdf_text(file_path)
+                    else:
+                        text = content_bytes.decode("utf-8", errors="replace")
+
+                    if not text or not text.strip():
+                        failed += 1
+                        continue
+
+                    # Chunk and index
+                    chunks = rag._split_into_chunks(text, chunk_size=500)
+                    for i, chunk in enumerate(chunks):
+                        metadata = {
+                            "source": file_path,
+                            "filename": safe_name,
+                            "stored_filename": stored_name,
+                            "directory": upload_dir,
+                            "type": ext,
+                            "chunk_id": i,
+                        }
+                        if user:
+                            metadata["owner"] = user
+                        if rag.add_document(chunk, metadata):
+                            indexed += 1
+                        else:
+                            failed += 1
+
+                    names.append(safe_name)
+                except Exception as e:
+                    logger.error(f"Failed to upload/index {safe_name}: {e}")
+                    failed += 1
+
+            # Same transition, same lock: the tracking update must not land
+            # while another job is mid-write over the same state.
+            if names and hasattr(personal_docs_manager, "add_directory"):
+                personal_docs_manager.add_directory(upload_dir, index=False)
+            return indexed, failed, names
+
+        # Chunking, embedding and the tracking update are blocking work over the
+        # same vector/tracking state add_directory mutates (#5634). Take the
+        # shared job lock BEFORE offloading so a queued request parks on the loop
+        # instead of pinning a threadpool worker, matching add_directory.
+        async with _index_job_lock:
+            total_indexed, indexed_failed, uploaded_files = await run_in_threadpool(_index_uploads)
+        total_failed += indexed_failed
 
         return {
             "success": True,
@@ -392,38 +415,47 @@ def setup_personal_routes(personal_docs_manager, rag_manager, rag_available):
     async def delete_file_from_rag(filepath: str = Query(...), owner: str = Depends(require_user), _admin: None = Depends(require_admin)):
         """Delete a specific file from RAG index and optionally from disk."""
         try:
-            # Remove chunks from RAG vector store (best-effort)
-            removed = 0
-            rag = _rag()
-            if rag:
-                try:
-                    removed = rag.delete_by_source(filepath)
-                except Exception as e:
-                    logger.warning(f"RAG removal failed for {filepath}: {e}")
+            def _delete_file():
+                # Remove chunks from RAG vector store (best-effort)
+                removed = 0
+                rag = _rag()
+                if rag:
+                    try:
+                        removed = rag.delete_by_source(filepath)
+                    except Exception as e:
+                        logger.warning(f"RAG removal failed for {filepath}: {e}")
 
-            # Delete file from disk if it's in the caller's own uploads dir.
-            # Scope to the per-owner subdir, not the shared uploads root, so one
-            # admin can't delete another user's personal files by path.
-            deleted_from_disk = False
-            try:
-                abs_target = os.path.realpath(filepath)
-                base_abs = os.path.realpath(_personal_upload_dir_for_owner(owner, create=False))
-                in_uploads = (
-                    abs_target == base_abs
-                    or os.path.commonpath([abs_target, base_abs]) == base_abs
-                )
-            except ValueError:
-                # commonpath raises on mixed drives / non-comparable paths
-                in_uploads = False
-            if in_uploads and abs_target != base_abs:
+                # Delete file from disk if it's in the caller's own uploads dir.
+                # Scope to the per-owner subdir, not the shared uploads root, so one
+                # admin can't delete another user's personal files by path.
+                deleted_from_disk = False
                 try:
-                    os.remove(abs_target)
-                    deleted_from_disk = True
-                except FileNotFoundError:
-                    pass  # already gone — race with another request or cleanup
+                    abs_target = os.path.realpath(filepath)
+                    base_abs = os.path.realpath(_personal_upload_dir_for_owner(owner, create=False))
+                    in_uploads = (
+                        abs_target == base_abs
+                        or os.path.commonpath([abs_target, base_abs]) == base_abs
+                    )
+                except ValueError:
+                    # commonpath raises on mixed drives / non-comparable paths
+                    in_uploads = False
+                if in_uploads and abs_target != base_abs:
+                    try:
+                        os.remove(abs_target)
+                        deleted_from_disk = True
+                    except FileNotFoundError:
+                        pass  # already gone — race with another request or cleanup
 
-            # Exclude the file from the listing (persists across restarts)
-            personal_docs_manager.exclude_file(filepath)
+                # Exclude the file from the listing (persists across restarts)
+                personal_docs_manager.exclude_file(filepath)
+                return removed, deleted_from_disk
+
+            # Vector removal, the disk unlink and the exclusion write are one
+            # transition over the same state add_directory mutates (#5634), and
+            # all three block. Take the shared job lock BEFORE offloading, as
+            # add_directory does.
+            async with _index_job_lock:
+                removed, deleted_from_disk = await run_in_threadpool(_delete_file)
 
             return {
                 "success": True,
