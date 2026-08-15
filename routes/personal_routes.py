@@ -328,81 +328,77 @@ def setup_personal_routes(personal_docs_manager, rag_manager, rag_available):
 
         upload_dir = _personal_upload_dir_for_owner(user)
 
+        total_indexed = 0
         total_failed = 0
-
-        # Read the request bodies on the event loop — that part is genuine async
-        # I/O — then stage them so every blocking step happens in one offloaded
-        # critical section below.
-        staged: List[Tuple[str, str, str, bytes]] = []
-        for upload in files:
-            try:
-                file_path, stored_name, safe_name = _unique_personal_upload_path(upload_dir, upload.filename)
-                content_bytes = await upload.read(PERSONAL_UPLOAD_MAX_BYTES + 1)
-                if len(content_bytes) > PERSONAL_UPLOAD_MAX_BYTES:
-                    logger.warning(f"Rejected oversized personal upload: {upload.filename!r}")
-                    total_failed += 1
-                    continue
-                staged.append((file_path, stored_name, safe_name, content_bytes))
-            except Exception as e:
-                logger.error(f"Failed to read upload {upload.filename}: {e}")
-                total_failed += 1
-
-        def _index_uploads():
-            indexed = 0
-            failed = 0
-            names = []
-            for file_path, stored_name, safe_name, content_bytes in staged:
-                try:
-                    with open(file_path, "wb") as f:
-                        f.write(content_bytes)
-
-                    ext = os.path.splitext(safe_name)[1].lower()
-                    if ext == ".pdf":
-                        from src.personal_docs import extract_pdf_text
-                        text = extract_pdf_text(file_path)
-                    else:
-                        text = content_bytes.decode("utf-8", errors="replace")
-
-                    if not text or not text.strip():
-                        failed += 1
-                        continue
-
-                    # Chunk and index
-                    chunks = rag._split_into_chunks(text, chunk_size=500)
-                    for i, chunk in enumerate(chunks):
-                        metadata = {
-                            "source": file_path,
-                            "filename": safe_name,
-                            "stored_filename": stored_name,
-                            "directory": upload_dir,
-                            "type": ext,
-                            "chunk_id": i,
-                        }
-                        if user:
-                            metadata["owner"] = user
-                        if rag.add_document(chunk, metadata):
-                            indexed += 1
-                        else:
-                            failed += 1
-
-                    names.append(safe_name)
-                except Exception as e:
-                    logger.error(f"Failed to upload/index {safe_name}: {e}")
-                    failed += 1
-
-            # Same transition, same lock: the tracking update must not land
-            # while another job is mid-write over the same state.
-            if names and hasattr(personal_docs_manager, "add_directory"):
-                personal_docs_manager.add_directory(upload_dir, index=False)
-            return indexed, failed, names
+        uploaded_files = []
 
         # Chunking, embedding and the tracking update are blocking work over the
         # same vector/tracking state add_directory mutates (#5634). Take the
         # shared job lock BEFORE offloading so a queued request parks on the loop
         # instead of pinning a threadpool worker, matching add_directory.
+        # Read and process one capped payload at a time so a multi-file request
+        # cannot retain len(files) * PERSONAL_UPLOAD_MAX_BYTES in memory.
         async with _index_job_lock:
-            total_indexed, indexed_failed, uploaded_files = await run_in_threadpool(_index_uploads)
-        total_failed += indexed_failed
+            for upload in files:
+                try:
+                    file_path, stored_name, safe_name = _unique_personal_upload_path(
+                        upload_dir, upload.filename
+                    )
+                    content_bytes = await upload.read(PERSONAL_UPLOAD_MAX_BYTES + 1)
+                    if len(content_bytes) > PERSONAL_UPLOAD_MAX_BYTES:
+                        logger.warning(f"Rejected oversized personal upload: {upload.filename!r}")
+                        total_failed += 1
+                        continue
+
+                    def _index_upload():
+                        with open(file_path, "wb") as f:
+                            f.write(content_bytes)
+
+                        ext = os.path.splitext(safe_name)[1].lower()
+                        if ext == ".pdf":
+                            from src.personal_docs import extract_pdf_text
+                            text = extract_pdf_text(file_path)
+                        else:
+                            text = content_bytes.decode("utf-8", errors="replace")
+
+                        if not text or not text.strip():
+                            return 0, 1, None
+
+                        indexed = 0
+                        failed = 0
+                        chunks = rag._split_into_chunks(text, chunk_size=500)
+                        for i, chunk in enumerate(chunks):
+                            metadata = {
+                                "source": file_path,
+                                "filename": safe_name,
+                                "stored_filename": stored_name,
+                                "directory": upload_dir,
+                                "type": ext,
+                                "chunk_id": i,
+                            }
+                            if user:
+                                metadata["owner"] = user
+                            if rag.add_document(chunk, metadata):
+                                indexed += 1
+                            else:
+                                failed += 1
+                        return indexed, failed, safe_name
+
+                    indexed, failed, uploaded_name = await run_in_threadpool(_index_upload)
+                    total_indexed += indexed
+                    total_failed += failed
+                    if uploaded_name:
+                        uploaded_files.append(uploaded_name)
+                except Exception as e:
+                    logger.error(f"Failed to upload/index {upload.filename}: {e}")
+                    total_failed += 1
+
+            # Same transition, same lock: the tracking update must not land
+            # while another job is mid-write over the same state.
+            if uploaded_files and hasattr(personal_docs_manager, "add_directory"):
+                await run_in_threadpool(
+                    personal_docs_manager.add_directory, upload_dir, index=False
+                )
 
         return {
             "success": True,

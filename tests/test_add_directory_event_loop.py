@@ -278,6 +278,45 @@ async def test_add_and_upload_serialize(tmp_path, monkeypatch):
     )
 
 
+async def test_upload_processes_each_payload_before_reading_the_next(tmp_path, monkeypatch):
+    """A multi-file upload must retain at most one capped payload at a time."""
+    from starlette.datastructures import UploadFile as StarletteUploadFile
+
+    reads = []
+    original_read = StarletteUploadFile.read
+
+    async def _recording_read(upload, size=-1):
+        reads.append(upload.filename)
+        return await original_read(upload, size)
+
+    def _record_first_index(self, chunk, metadata):
+        self._record.setdefault("reads_at_first_index", len(reads))
+        return True
+
+    monkeypatch.setattr(StarletteUploadFile, "read", _recording_read)
+    monkeypatch.setattr(_FakeRag, "add_document", _record_first_index)
+
+    record = {}
+    app = _build_app(tmp_path, monkeypatch, record)
+    monkeypatch.setattr(personal_routes, "UPLOADS_DIR", str(tmp_path / "uploads"))
+    monkeypatch.setattr(personal_routes, "require_privilege", lambda request, key: "tester")
+
+    files = [
+        ("files", ("a.txt", b"alpha", "text/plain")),
+        ("files", ("b.txt", b"bravo", "text/plain")),
+        ("files", ("c.txt", b"charlie", "text/plain")),
+    ]
+    async with _async_client(app) as ac:
+        response = await ac.post("/api/personal/upload", files=files)
+
+    assert response.status_code == 200
+    assert response.json()["uploaded"] == ["a.txt", "b.txt", "c.txt"]
+    assert reads == ["a.txt", "b.txt", "c.txt"]
+    assert record["reads_at_first_index"] == 1, (
+        "all upload bodies were retained before worker processing began"
+    )
+
+
 async def test_add_and_delete_file_serialize(tmp_path, monkeypatch):
     """#5634 follow-up: DELETE /file removes chunks from the vector store and
     calls personal_docs_manager.exclude_file. Both mutate state add_directory
