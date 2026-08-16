@@ -245,6 +245,44 @@ def test_invalid_utf8_is_not_replaced(tmp_path):
     assert after.st_ino == before.st_ino
 
 
+def test_temporary_file_is_chmodded_before_it_is_chowned(tmp_path, monkeypatch):
+    # The Compose cap set is `cap_drop: ALL` plus CHOWN/SETGID/SETUID/
+    # DAC_OVERRIDE and carries no FOWNER, and searxng's entrypoint chowns
+    # /etc/searxng to searxng:searxng, so every retained settings file is owned
+    # by that user. Chowning the temporary file first therefore makes the chmod
+    # that follows fail with EPERM, and `set -eu` in the Compose entrypoint
+    # turns that into a container that never starts. The guard below refuses
+    # the chmod once the chown has landed, the way the kernel does.
+    migration = _load_migration_module()
+    settings = tmp_path / "settings.yml"
+    settings.write_bytes(b"server:\n  secret_key: retained\n")
+    settings.chmod(0o640)
+    calls = []
+    real_fchmod = migration.os.fchmod
+    real_fchown = migration.os.fchown
+
+    def guarded_fchmod(fd, mode):
+        if "fchown" in calls:
+            raise PermissionError(1, "Operation not permitted")
+        calls.append("fchmod")
+        return real_fchmod(fd, mode)
+
+    def recording_fchown(fd, uid, gid):
+        calls.append("fchown")
+        return real_fchown(fd, uid, gid)
+
+    monkeypatch.setattr(migration.os, "fchmod", guarded_fchmod)
+    monkeypatch.setattr(migration.os, "fchown", recording_fchown)
+
+    assert migration.migrate_settings(settings) is True
+
+    assert calls == ["fchmod", "fchown"]
+    assert stat.S_IMODE(settings.stat().st_mode) == 0o640
+    assert settings.read_bytes() == (
+        b"use_default_settings: true\nserver:\n  secret_key: retained\n"
+    )
+
+
 def test_replace_failure_preserves_original_and_removes_temporary_file(
     tmp_path, monkeypatch
 ):
